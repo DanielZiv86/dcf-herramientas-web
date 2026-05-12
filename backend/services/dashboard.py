@@ -87,21 +87,49 @@ async def load_macro() -> dict[str, Any]:
     mep = _safe_float(mep_d, "mark", "close", "ask", "bid")
     mep_var = _safe_float(mep_d, "pct_change", "var")
 
-    # CCL: data912 returns a list or dict — try multiple structures
+    # CCL: log raw response so we can see the actual structure in Render logs
+    logger.info("CCL raw response: %s", str(ccl_raw)[:300])
+
     ccl = None
     ccl_var = None
-    if isinstance(ccl_raw, list) and ccl_raw:
-        # Try each element until we find a valid value
-        for item in ccl_raw:
-            if isinstance(item, dict):
-                v = _safe_float(item, "mark", "close", "ccl", "value", "ask", "bid", "c")
-                if v and v > 100:
-                    ccl = v
-                    ccl_var = _safe_float(item, "pct_change", "var", "change_pct")
-                    break
-    elif isinstance(ccl_raw, dict):
-        ccl = _safe_float(ccl_raw, "mark", "close", "ccl", "value", "ask", "bid", "c")
-        ccl_var = _safe_float(ccl_raw, "pct_change", "var")
+
+    def _extract_ccl_value(obj) -> Optional[float]:
+        """Recursively try to find a CCL-sized float (> 100) in any dict/list structure."""
+        if isinstance(obj, (int, float)):
+            try:
+                f = float(obj)
+                return f if f > 100 else None
+            except Exception:
+                return None
+        if isinstance(obj, dict):
+            for k in ["mark", "close", "c", "ccl", "mep", "value", "price", "ask", "bid", "venta", "compra", "last"]:
+                v = obj.get(k)
+                if v is not None:
+                    result = _extract_ccl_value(v)
+                    if result:
+                        return result
+        if isinstance(obj, list):
+            for item in obj:
+                result = _extract_ccl_value(item)
+                if result:
+                    return result
+        return None
+
+    def _extract_ccl_pct(obj) -> Optional[float]:
+        if isinstance(obj, dict):
+            for k in ["pct_change", "var", "change_pct", "change", "variacion", "variation"]:
+                v = obj.get(k)
+                if v is not None:
+                    try:
+                        return float(v)
+                    except Exception:
+                        pass
+        if isinstance(obj, list) and obj:
+            return _extract_ccl_pct(obj[0])
+        return None
+
+    ccl = _extract_ccl_value(ccl_raw)
+    ccl_var = _extract_ccl_pct(ccl_raw)
 
     brecha_mep = round((mep / oficial - 1) * 100, 1) if (mep and oficial and oficial > 0) else None
     brecha_ccl = round((ccl / oficial - 1) * 100, 1) if (ccl and oficial and oficial > 0) else None
@@ -157,7 +185,8 @@ async def load_tasas_soberanas() -> tuple[list[dict], Optional[float]]:
     """TIR de AL30D, GD30D, AL35D, GD35D — calculada desde cashflows."""
     try:
         from services.bonds import get_hd_table
-        hd = await get_hd_table("MEP")
+        # Timeout de 15s para no bloquear el dashboard en cold start
+        hd = await asyncio.wait_for(get_hd_table("MEP"), timeout=15)
 
         tickers = ["AL30D", "GD30D", "AL35D", "GD35D"]
         # Base tickers (sin D) to match the table
