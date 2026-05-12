@@ -74,62 +74,24 @@ def _safe_float(d: dict, *keys) -> Optional[float]:
 # ── Macro ─────────────────────────────────────────────────────────────────────
 
 async def load_macro() -> dict[str, Any]:
-    mep_task = asyncio.create_task(data912.get_mep())
-    ccl_task = asyncio.create_task(data912.get_ccl())
-    oficial_task = asyncio.create_task(_fetch_oficial())
-    rp_task = asyncio.create_task(_fetch_riesgo_pais_value())
-
-    mep_d, ccl_raw, oficial, (rp_val, rp_pct) = await asyncio.gather(
-        mep_task, ccl_task, oficial_task, rp_task
+    results = await asyncio.gather(
+        data912.get_mep(),
+        data912.get_ccl_mark(),
+        _fetch_oficial(),
+        _fetch_riesgo_pais_value(),
+        return_exceptions=True,
     )
 
-    # MEP: data912 returns {bid, ask, close, mark, pct_change, var}
-    mep = _safe_float(mep_d, "mark", "close", "ask", "bid")
+    mep_d   = results[0] if not isinstance(results[0], Exception) else {}
+    ccl_r   = results[1] if not isinstance(results[1], Exception) else (None, None)
+    oficial = results[2] if not isinstance(results[2], Exception) else None
+    rp_r    = results[3] if not isinstance(results[3], Exception) else (None, None)
+
+    mep     = _safe_float(mep_d, "mark", "close", "ask", "bid")
     mep_var = _safe_float(mep_d, "pct_change", "var")
 
-    # CCL: log raw response so we can see the actual structure in Render logs
-    logger.info("CCL raw response: %s", str(ccl_raw)[:300])
-
-    ccl = None
-    ccl_var = None
-
-    def _extract_ccl_value(obj) -> Optional[float]:
-        """Recursively try to find a CCL-sized float (> 100) in any dict/list structure."""
-        if isinstance(obj, (int, float)):
-            try:
-                f = float(obj)
-                return f if f > 100 else None
-            except Exception:
-                return None
-        if isinstance(obj, dict):
-            for k in ["mark", "close", "c", "ccl", "mep", "value", "price", "ask", "bid", "venta", "compra", "last"]:
-                v = obj.get(k)
-                if v is not None:
-                    result = _extract_ccl_value(v)
-                    if result:
-                        return result
-        if isinstance(obj, list):
-            for item in obj:
-                result = _extract_ccl_value(item)
-                if result:
-                    return result
-        return None
-
-    def _extract_ccl_pct(obj) -> Optional[float]:
-        if isinstance(obj, dict):
-            for k in ["pct_change", "var", "change_pct", "change", "variacion", "variation"]:
-                v = obj.get(k)
-                if v is not None:
-                    try:
-                        return float(v)
-                    except Exception:
-                        pass
-        if isinstance(obj, list) and obj:
-            return _extract_ccl_pct(obj[0])
-        return None
-
-    ccl = _extract_ccl_value(ccl_raw)
-    ccl_var = _extract_ccl_pct(ccl_raw)
+    ccl, ccl_var = ccl_r if isinstance(ccl_r, tuple) else (None, None)
+    rp_val, rp_pct = rp_r if isinstance(rp_r, tuple) else (None, None)
 
     brecha_mep = round((mep / oficial - 1) * 100, 1) if (mep and oficial and oficial > 0) else None
     brecha_ccl = round((ccl / oficial - 1) * 100, 1) if (ccl and oficial and oficial > 0) else None

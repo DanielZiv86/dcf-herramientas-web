@@ -50,13 +50,37 @@ async def get_mep() -> dict:
     raise ValueError("Unexpected /live/mep response")
 
 
-async def get_ccl() -> dict:
+async def get_ccl() -> list:
+    """Returns full list of CCL pairs from data912.
+    Each item: {ticker_usa, ticker_ar, CCL_bid, CCL_ask, CCL_close, CCL_mark, ars_volume, volume_rank}
+    """
     data = await _fetch("/live/ccl")
-    if isinstance(data, list) and data:
-        return data[0]
-    if isinstance(data, dict):
+    if isinstance(data, list):
         return data
-    raise ValueError("Unexpected /live/ccl response")
+    if isinstance(data, dict):
+        return [data]
+    return []
+
+
+async def get_ccl_mark() -> tuple[float | None, float | None]:
+    """Returns (ccl_value, pct_change) using the highest-volume pair."""
+    items = await get_ccl()
+    if not items:
+        return None, None
+    # Sort by ars_volume descending, pick most liquid
+    sorted_items = sorted(items, key=lambda x: float(x.get("ars_volume") or 0), reverse=True)
+    best = sorted_items[0]
+    ccl = best.get("CCL_mark") or best.get("CCL_close") or best.get("CCL_ask")
+    # pct_change not available per-item; compute from all items avg
+    marks = [float(x["CCL_mark"]) for x in items if x.get("CCL_mark")]
+    prev_closes = [float(x["CCL_close"]) for x in items if x.get("CCL_close")]
+    pct = None
+    if marks and prev_closes:
+        avg_mark = sum(marks) / len(marks)
+        avg_close = sum(prev_closes) / len(prev_closes)
+        if avg_close and avg_close != 0:
+            pct = round((avg_mark - avg_close) / avg_close * 100, 2)
+    return (float(ccl) if ccl else None), pct
 
 
 async def get_mep_value(prefer: str = "mark") -> float:
