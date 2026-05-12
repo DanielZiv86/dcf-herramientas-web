@@ -19,7 +19,7 @@ async function init() {
   // Check auth
   _user = await api.auth.me();
   if (!_user) {
-    window.location.href = '/login.html';
+    window.location.href = BASE_PATH + '/login.html';
     return;
   }
 

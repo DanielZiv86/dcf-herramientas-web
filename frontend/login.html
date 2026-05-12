@@ -17,7 +17,7 @@
     <h1 class="login-title">DCF Inversiones</h1>
     <p class="login-subtitle">Herramientas de análisis de mercado</p>
 
-    <a href="/auth/login" id="google-login-btn" class="login-btn-google">
+    <a id="google-login-btn" class="login-btn-google" style="cursor:pointer">
       <svg width="20" height="20" viewBox="0 0 48 48">
         <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.2l6.7-6.7C35.8 2.5 30.2 0 24 0 14.7 0 6.8 5.4 3 13.4l7.8 6C12.8 13 17.9 9.5 24 9.5z"/>
         <path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h12.4c-.5 2.9-2.1 5.3-4.5 7l7 5.4c4.1-3.8 6.5-9.4 6.5-16z"/>
@@ -32,15 +32,26 @@
 </div>
 
 <script>
+  // Detect base paths
+  const _API = (
+    window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ) ? '' : (window._DCF_API_URL || 'https://dcf-herramientas-web.onrender.com');
+
+  const _base = (() => {
+    const p = window.location.pathname;
+    const m = p.match(/^(\/[^/]+)\//);
+    return (m && !m[1].includes('.')) ? m[1] : '';
+  })();
+
   // Check for error in URL params
   const params = new URLSearchParams(window.location.search);
   const error = params.get('error');
   const errorMessages = {
-    oauth_denied:  'Acceso denegado por Google.',
-    token_failed:  'Error al obtener el token de acceso.',
+    oauth_denied:    'Acceso denegado por Google.',
+    token_failed:    'Error al obtener el token de acceso.',
     userinfo_failed: 'No se pudo obtener la información del usuario.',
-    no_email:      'No se recibió un email válido.',
-    not_authorized: 'Tu email no está en la lista de acceso. Contactá a DCF Inversiones.',
+    no_email:        'No se recibió un email válido.',
+    not_authorized:  'Tu email no está en la lista de acceso. Contactá a DCF Inversiones.',
   };
   if (error) {
     const el = document.getElementById('login-error');
@@ -48,9 +59,12 @@
     el.textContent = errorMessages[error] || `Error: ${error}`;
   }
 
+  // Set Google login button href dynamically to point to Render backend
+  document.getElementById('google-login-btn').href = _API + '/auth/login';
+
   // If already logged in, redirect to app
-  fetch('/auth/me', { credentials: 'include' })
-    .then(r => { if (r.ok) window.location.href = '/'; })
+  fetch(_API + '/auth/me', { credentials: 'include' })
+    .then(r => { if (r.ok) window.location.href = _base + '/'; })
     .catch(() => {});
 </script>
 </body>

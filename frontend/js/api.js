@@ -1,11 +1,21 @@
 /* ─── DCF API wrapper ─────────────────────────────────────────────────────── */
 /* Fetch wrapper — credentials: 'include' para enviar httpOnly cookie JWT      */
 
-// Auto-detect: local dev → same origin, GitHub Pages / cualquier otro → URL del backend en Render
+// API_BASE: vacío en local (mismo origen), URL de Render en GitHub Pages / producción
 const API_BASE = (
   window.location.hostname === 'localhost' ||
   window.location.hostname === '127.0.0.1'
 ) ? '' : (window._DCF_API_URL || 'https://dcf-herramientas-web.onrender.com');
+
+// BASE_PATH: ruta base del frontend según donde esté deployado
+// Local: ''  |  GitHub Pages: '/dcf-herramientas-web'  |  Render o dominio propio: ''
+const BASE_PATH = (() => {
+  const p = window.location.pathname;
+  const match = p.match(/^(\/[^/]+)\//) ;
+  // Si el primer segmento no es una página HTML, es el subdirectorio base
+  if (match && !match[1].includes('.')) return match[1];
+  return '';
+})();
 
 class APIError extends Error {
   constructor(message, status) {
@@ -81,8 +91,8 @@ const api = {
     candles:    (ticker, resolution = 'W') => apiFetch(`/fundamental/candles?ticker=${ticker}&resolution=${resolution}`),
   },
   auth: {
-    me:     () => fetch('/auth/me', { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null),
-    logout: () => fetch('/auth/logout', { credentials: 'include' }).then(() => { window.location.href = '/login.html'; }),
+    me:     () => fetch(API_BASE + '/auth/me', { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null),
+    logout: () => fetch(API_BASE + '/auth/logout', { credentials: 'include' }).then(() => { window.location.href = BASE_PATH + '/login.html'; }),
   },
 };
 
