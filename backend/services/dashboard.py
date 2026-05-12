@@ -189,11 +189,62 @@ async def load_sp500_treemap() -> list[dict]:
             sector = row.get("sector", "Other")
             q = quotes.get(tk, {})
             pct = q.get("pct_change")
+            price = q.get("price")
             if pct is not None:
-                rows.append({"ticker": tk, "sector": sector, "pct_change": round(pct, 2)})
+                rows.append({
+                    "ticker": tk,
+                    "sector": sector,
+                    "pct_change": round(pct, 2),
+                    "price": round(float(price), 2) if price else None,
+                })
         return rows
     except Exception as e:
         logger.warning("load_sp500_treemap failed: %s", e)
+        return []
+
+
+async def load_sp500_treemap_period(period: str = "1M") -> list[dict]:
+    """Returns S&P500 treemap with period returns for coloring."""
+    try:
+        sectors_df = await yahoo.get_sp500_sectors()
+        if sectors_df.empty:
+            return []
+        tickers = sectors_df["ticker"].dropna().tolist()[:80]
+
+        # Get historical data for period
+        hist = await yahoo.get_history(tickers, period=period)
+        quotes = await yahoo.get_quotes(tickers)
+
+        rows = []
+        for _, row in sectors_df.iterrows():
+            tk = row["ticker"]
+            if tk not in tickers:
+                continue
+            sector = row.get("sector", "Other")
+            q = quotes.get(tk, {})
+            price = q.get("price")
+
+            # Period return
+            period_pct = None
+            if tk in hist.columns and not hist[tk].dropna().empty:
+                series = hist[tk].dropna()
+                if len(series) >= 2:
+                    period_pct = round((series.iloc[-1] / series.iloc[0] - 1) * 100, 2)
+
+            # Daily change
+            daily_pct = q.get("pct_change")
+
+            if period_pct is not None:
+                rows.append({
+                    "ticker": tk,
+                    "sector": sector,
+                    "pct_change": period_pct,      # used for coloring (period)
+                    "pct_1d": round(daily_pct, 2) if daily_pct else None,
+                    "price": round(float(price), 2) if price else None,
+                })
+        return rows
+    except Exception as e:
+        logger.warning("load_sp500_treemap_period failed: %s", e)
         return []
 
 

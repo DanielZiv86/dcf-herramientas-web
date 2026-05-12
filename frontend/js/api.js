@@ -55,7 +55,7 @@ const api = {
     indices:        () => apiFetch('/dashboard/indices'),
     tickerBand:     () => apiFetch('/dashboard/ticker-band'),
     tasas:          () => apiFetch('/dashboard/tasas-soberanas'),
-    sp500Treemap:   () => apiFetch('/dashboard/sp500-treemap'),
+    sp500Treemap:   (period = '1D') => apiFetch(`/dashboard/sp500-treemap?period=${period}`),
     mervalTreemap:  () => apiFetch('/dashboard/merval-treemap'),
     cedears:        () => apiFetch('/dashboard/cedears'),
     performance:   (period = '1M') => apiFetch(`/dashboard/performance?period=${period}`),

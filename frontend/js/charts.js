@@ -99,29 +99,48 @@ function renderTreemap(domId, data, {
   labelKey = 'ticker',
   valueKey = 'pct_change',
   priceKey = 'price',
+  extraKey = null,       // e.g. 'tir' for bonds
+  extraLabel = '',       // e.g. 'TIR'
   groupKey = null,
-  showPrice = false,
+  periodLabel = '1D',    // shown in tooltip header
 } = {}) {
   const chart = initChart(domId, height);
   if (!chart) return;
 
   const treeData = groupKey
-    ? _groupedTreemap(data, groupKey, labelKey, valueKey, priceKey, showPrice)
-    : _flatTreemap(data, labelKey, valueKey, priceKey, showPrice);
+    ? _groupedTreemap(data, groupKey, labelKey, valueKey, priceKey, extraKey)
+    : _flatTreemap(data, labelKey, valueKey, priceKey, extraKey);
 
   const option = {
     tooltip: {
       formatter: (info) => {
-        if (!info.data) return info.name;
-        const pct = info.data.pct;
-        const price = info.data.price;
-        const sign = pct >= 0 ? '+' : '';
-        return `<span style="font-family:'JetBrains Mono',monospace;font-size:12px">
-          <b style="font-size:13px">${info.name}</b><br/>
-          ${price ? `${fmt.num(price)}<br/>` : ''}
-          <span style="color:${pct >= 0 ? '#22c55e' : '#ef4444'}">${sign}${pct?.toFixed(2)}%</span>
-        </span>`;
+        if (!info.data || info.data.children) return `<b>${info.name}</b>`;
+        const d = info.data;
+        const pct = d.pct;
+        const pct1d = d.pct1d;
+        const price = d.price;
+        const extra = d.extra;
+        const sign = v => v >= 0 ? '+' : '';
+        const col  = v => v >= 0 ? '#22c55e' : '#ef4444';
+        const mono = "font-family:'JetBrains Mono',monospace";
+
+        let html = `<div style="${mono};font-size:12px;min-width:140px">`;
+        html += `<div style="font-size:13px;font-weight:700;margin-bottom:6px">${info.name}</div>`;
+        if (price != null)
+          html += `<div style="display:flex;justify-content:space-between;gap:16px"><span style="color:#7a8fa6">Precio</span><span>${fmt.num(price)}</span></div>`;
+        if (pct != null)
+          html += `<div style="display:flex;justify-content:space-between;gap:16px"><span style="color:#7a8fa6">${periodLabel}</span><span style="color:${col(pct)}">${sign(pct)}${pct.toFixed(2)}%</span></div>`;
+        if (pct1d != null && periodLabel !== '1D')
+          html += `<div style="display:flex;justify-content:space-between;gap:16px"><span style="color:#7a8fa6">1D</span><span style="color:${col(pct1d)}">${sign(pct1d)}${pct1d.toFixed(2)}%</span></div>`;
+        if (extra != null)
+          html += `<div style="display:flex;justify-content:space-between;gap:16px"><span style="color:#7a8fa6">${extraLabel || 'Extra'}</span><span style="color:#f97316">${typeof extra === 'number' ? extra.toFixed(2) + '%' : extra}</span></div>`;
+        html += '</div>';
+        return html;
       },
+      backgroundColor: '#0d1424',
+      borderColor: 'rgba(255,255,255,0.12)',
+      borderWidth: 1,
+      padding: 10,
     },
     series: [{
       type: 'treemap',
@@ -133,44 +152,46 @@ function renderTreemap(domId, data, {
       label: {
         show: true,
         fontFamily: "'JetBrains Mono', monospace",
-        fontWeight: 700,
-        color: 'rgba(255,255,255,0.95)',
         formatter: (p) => {
-          if (!p.data) return p.name;
-          const pct = p.data.pct;
-          const price = p.data.price;
+          if (!p.data || p.data.children) return p.name;
+          const d = p.data;
+          const pct = d.pct;
+          const price = d.price;
+          const extra = d.extra;
           const sign = pct !== null && pct >= 0 ? '+' : '';
           const pctStr = pct !== null ? `${sign}${pct.toFixed(2)}%` : '';
-          // Show ticker + pct on two lines; price if space
-          if (price && p.data.showPrice) {
-            return `{ticker|${p.name}}\n{price|${fmt.num(price)}}\n{pct|${pctStr}}`;
+
+          // Show content based on available space (node size)
+          if (extra != null) {
+            return `{tk|${p.name}}\n{px|${price ? fmt.num(price) : ''}}\n{pct|${pctStr}}\n{ex|${typeof extra === 'number' ? extra.toFixed(2) + '%' : extra}}`;
           }
-          return `{ticker|${p.name}}\n{pct|${pctStr}}`;
+          if (price != null) {
+            return `{tk|${p.name}}\n{px|${fmt.num(price)}}\n{pct|${pctStr}}`;
+          }
+          return `{tk|${p.name}}\n{pct|${pctStr}}`;
         },
         rich: {
-          ticker: { fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.95)', fontFamily: "'JetBrains Mono',monospace" },
-          price:  { fontSize: 9,  fontWeight: 400, color: 'rgba(255,255,255,0.7)',  fontFamily: "'JetBrains Mono',monospace" },
-          pct:    { fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.9)',  fontFamily: "'JetBrains Mono',monospace" },
+          tk:  { fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.95)', fontFamily: "'JetBrains Mono',monospace", lineHeight: 16 },
+          px:  { fontSize: 9,  fontWeight: 400, color: 'rgba(255,255,255,0.65)', fontFamily: "'JetBrains Mono',monospace", lineHeight: 13 },
+          pct: { fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.90)', fontFamily: "'JetBrains Mono',monospace", lineHeight: 14 },
+          ex:  { fontSize: 9,  fontWeight: 600, color: '#f97316',                fontFamily: "'JetBrains Mono',monospace", lineHeight: 13 },
         },
       },
       upperLabel: {
         show: !!groupKey,
-        height: 20,
-        color: 'rgba(148,163,184,0.8)',
+        height: 18,
+        color: 'rgba(148,163,184,0.75)',
         fontSize: 9,
         fontWeight: 700,
         textBorderColor: 'transparent',
         fontFamily: "'JetBrains Mono',monospace",
-        textTransform: 'uppercase',
       },
       itemStyle: { gapWidth: 2, borderWidth: 0 },
       breadcrumb: { show: false },
       levels: groupKey ? [
         { itemStyle: { gapWidth: 3, borderColor: '#060b17', borderWidth: 1 } },
         { itemStyle: { gapWidth: 1 } },
-      ] : [
-        { itemStyle: { gapWidth: 1 } },
-      ],
+      ] : [{ itemStyle: { gapWidth: 1 } }],
     }],
   };
 
@@ -178,22 +199,22 @@ function renderTreemap(domId, data, {
   _autoResize(chart);
 }
 
-function _flatTreemap(data, labelKey, valueKey, priceKey, showPrice) {
+function _flatTreemap(data, labelKey, valueKey, priceKey, extraKey) {
   return data.map(d => {
-    const pct = d[valueKey] ?? 0;
+    const pct   = d[valueKey] ?? 0;
     const price = d[priceKey] ?? null;
+    const extra = extraKey ? (d[extraKey] ?? null) : null;
+    const pct1d = d.pct_1d ?? null;
     return {
       name: d[labelKey],
-      value: Math.abs(pct) || 0.01,  // size based on abs value
-      pct,
-      price,
-      showPrice,
+      value: Math.abs(pct) || 0.01,
+      pct, price, extra, pct1d,
       itemStyle: { color: _treemapColor(pct) },
     };
   });
 }
 
-function _groupedTreemap(data, groupKey, labelKey, valueKey, priceKey, showPrice) {
+function _groupedTreemap(data, groupKey, labelKey, valueKey, priceKey, extraKey) {
   const groups = {};
   for (const d of data) {
     const g = d[groupKey] || 'Other';
@@ -203,7 +224,7 @@ function _groupedTreemap(data, groupKey, labelKey, valueKey, priceKey, showPrice
   return Object.entries(groups).map(([group, items]) => ({
     name: group,
     value: items.reduce((s, d) => s + Math.abs(d[valueKey] ?? 0), 0),
-    children: _flatTreemap(items, labelKey, valueKey, priceKey, showPrice),
+    children: _flatTreemap(items, labelKey, valueKey, priceKey, extraKey),
   }));
 }
 

@@ -35,9 +35,14 @@ async def get_tasas_soberanas(dcf_session: Optional[str] = Cookie(default=None))
 
 
 @router.get("/sp500-treemap")
-async def get_sp500_treemap(dcf_session: Optional[str] = Cookie(default=None)):
+async def get_sp500_treemap(
+    period: str = Query(default="1D"),
+    dcf_session: Optional[str] = Cookie(default=None),
+):
     require_auth(dcf_session)
-    return await svc.load_sp500_treemap()
+    if period == "1D":
+        return await svc.load_sp500_treemap()
+    return await svc.load_sp500_treemap_period(period)
 
 
 @router.get("/merval-treemap")

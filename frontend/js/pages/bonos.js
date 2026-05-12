@@ -32,12 +32,18 @@ async function renderSoberanos(container) {
         <div id="bonos-tabla-wrap"></div>
       </div>
       <div>
-        <div class="card mb-4">
-          <div class="chart-title">Curva TIR — Hard Dollar</div>
+        <div class="card mb-3">
+          <div class="card-header">
+            <div class="card-title">Curva TIR — Hard Dollar</div>
+          </div>
           <div id="chart-curva-tir"></div>
         </div>
-        <div class="card mb-4">
-          <div class="chart-title">Riesgo País</div>
+        <div class="card mb-3">
+          <div class="card-title" style="padding:10px 12px 0">Bond Market Heatmap</div>
+          <div id="chart-bonos-treemap"></div>
+        </div>
+        <div class="card mb-3">
+          <div class="card-title" style="padding:10px 12px 0">Riesgo País (EMBI)</div>
           <div id="chart-riesgo-pais"></div>
         </div>
       </div>
@@ -52,6 +58,7 @@ async function renderSoberanos(container) {
   if (full.status === 'fulfilled') {
     _renderBonosTabla(full.value);
     _renderCurvaTIR(full.value);
+    _renderBonosTreemap(full.value);
   }
 
   if (rp.status === 'fulfilled') {
@@ -96,30 +103,38 @@ function _renderBonosTabla(data) {
 
 function _renderCurvaTIR(data) {
   const mep = data.filter(d => d.mercado === 'MEP' && d.tir !== null && d.duration !== null);
-  const globales = mep.filter(d => d.base?.startsWith('GD'));
-  const bonares  = mep.filter(d => ['AL','AE','AN','AO'].some(p => d.base?.startsWith(p)));
+  const globales  = mep.filter(d => d.base?.startsWith('GD'));
+  const bonares   = mep.filter(d => ['AL','AE','AN','AO'].some(p => d.base?.startsWith(p)));
   const bopreales = mep.filter(d => d.group === 'BOPREAL');
 
   const series = [];
-  if (globales.length) series.push({
-    name: 'Ley NY', color: dcfCharts.COLORS.sky,
-    data: globales.map(d => ({ x: d.duration, y: d.tir, label: d.base })),
-    showLabels: true,
-  });
-  if (bonares.length) series.push({
-    name: 'Ley AR', color: dcfCharts.COLORS.violet,
-    data: bonares.map(d => ({ x: d.duration, y: d.tir, label: d.base })),
-    showLabels: true,
-  });
-  if (bopreales.length) series.push({
-    name: 'BOPREAL', color: dcfCharts.COLORS.emerald,
-    data: bopreales.map(d => ({ x: d.duration, y: d.tir, label: d.base })),
-    showLabels: true,
-  });
+  if (globales.length) series.push({ name: 'Ley NY', color: dcfCharts.COLORS.sky,
+    data: globales.map(d => ({ x: d.duration, y: d.tir, label: d.base })), showLabels: true });
+  if (bonares.length) series.push({ name: 'Ley AR', color: dcfCharts.COLORS.violet,
+    data: bonares.map(d => ({ x: d.duration, y: d.tir, label: d.base })), showLabels: true });
+  if (bopreales.length) series.push({ name: 'BOPREAL', color: dcfCharts.COLORS.emerald,
+    data: bopreales.map(d => ({ x: d.duration, y: d.tir, label: d.base })), showLabels: true });
 
   dcfCharts.renderScatter('chart-curva-tir', series, {
-    height: 280, xLabel: 'Dur. Mod', yLabel: 'TIR %',
+    height: 260, xLabel: 'Dur. Mod', yLabel: 'TIR %',
     yFormatter: v => `${v?.toFixed(2)}%`,
+  });
+}
+
+function _renderBonosTreemap(data) {
+  const el = document.getElementById('chart-bonos-treemap');
+  if (!el) return;
+  const mep = data.filter(d => d.mercado === 'MEP' && d.tir !== null);
+  // Add group field based on family
+  mep.forEach(d => {
+    if (d.group === 'BOPREAL') d._fam = 'BOPREAL';
+    else if (d.base?.startsWith('GD')) d._fam = 'Soberanos NY';
+    else d._fam = 'Soberanos AR';
+  });
+  dcfCharts.renderTreemap('chart-bonos-treemap', mep, {
+    height: 300, labelKey: 'base', valueKey: 'tir',
+    priceKey: 'precio', extraKey: 'tir', extraLabel: 'TIR',
+    groupKey: '_fam', periodLabel: 'TIR',
   });
 }
 

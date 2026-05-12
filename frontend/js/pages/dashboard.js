@@ -65,14 +65,12 @@ async function _loadDashboard() {
   ]);
 
   if (sp500.status === 'fulfilled') {
-    dcfCharts.renderTreemap('chart-sp500-treemap', sp500.value, {
-      height: 380, labelKey: 'ticker', valueKey: 'pct_change', groupKey: 'sector',
-    });
+    _renderSP500Treemap(sp500.value, '1D');
   }
 
   if (merval.status === 'fulfilled') {
     dcfCharts.renderTreemap('chart-merval-treemap', merval.value, {
-      height: 380, labelKey: 'ticker', valueKey: 'pct_change', priceKey: 'price', showPrice: true,
+      height: 360, labelKey: 'ticker', valueKey: 'pct_change', priceKey: 'price', periodLabel: '1D',
     });
   }
 
@@ -164,36 +162,41 @@ function _renderCedears(body, cedears) {
   body.appendChild(table);
 }
 
+function _renderSP500Treemap(data, periodLabel) {
+  dcfCharts.renderTreemap('chart-sp500-treemap', data, {
+    height: 360, labelKey: 'ticker', valueKey: 'pct_change',
+    priceKey: 'price', groupKey: 'sector', periodLabel,
+  });
+}
+
 function _setupPerfPills() {
   const el = document.getElementById('perf-pills');
   if (!el) return;
-  const periods = ['1S', '1M', '3M', 'YTD', '1A'];
-  const pillsEl = ui.pills(periods, 1, async (i, period) => {
-    const el2 = document.getElementById('chart-sp500-treemap');
-    if (el2) el2.innerHTML = '<p class="text-muted text-sm p-4">Cargando...</p>';
+  const periods = ['1D', '1S', '1M', '3M', 'YTD', '1A'];
+  let activePeriod = '1D';
+
+  const pillsEl = ui.pills(periods, 0, async (i, period) => {
+    activePeriod = period;
+    const chartEl = document.getElementById('chart-sp500-treemap');
+    if (chartEl) {
+      chartEl.innerHTML = '';
+      const sk = document.createElement('div');
+      sk.className = 'skeleton'; sk.style.height = '360px';
+      chartEl.appendChild(sk);
+    }
     try {
-      const data = await api.dashboard.performance(period);
-      _renderPerformance(data);
+      if (period === '1D') {
+        const data = await api.dashboard.sp500Treemap('1D');
+        _renderSP500Treemap(data, '1D');
+      } else {
+        const data = await api.dashboard.sp500Treemap(period);
+        _renderSP500Treemap(data, period);
+      }
     } catch (e) {
-      ui.toast('Error cargando performance', 'error');
+      ui.toast('Error cargando treemap', 'error');
     }
   }, 'pills-sm');
   el.appendChild(pillsEl);
-}
-
-function _renderPerformance(data) {
-  if (!data || !data.dates) return;
-  const series = Object.entries(data)
-    .filter(([k]) => k !== 'dates')
-    .map(([name, vals]) => ({
-      name,
-      data: vals,
-      color: name === 'S&P 500' ? dcfCharts.COLORS.sky : name === 'QQQ' ? dcfCharts.COLORS.violet : dcfCharts.COLORS.emerald,
-      area: true,
-    }));
-  dcfCharts.renderLine('chart-sp500-treemap', series, {
-    height: 380, xLabels: data.dates, yFormatter: v => `${v > 0 ? '+' : ''}${v?.toFixed(1)}%`,
-  });
 }
 
 let _tickerInterval;
