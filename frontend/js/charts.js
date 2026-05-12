@@ -75,11 +75,21 @@ function pctToColor(pct) {
   return '#64748b';
 }
 
+// ── Safe number formatter (no dependency on components.js) ────────────────
+
+function _n(v, d = 2) {
+  if (v == null) return '';
+  return Number(v).toLocaleString('es-AR', { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
 // ── Chart factory ─────────────────────────────────────────────────────────
 
 function initChart(domId, height = 300) {
   const el = document.getElementById(domId);
   if (!el) return null;
+  // Dispose existing instance to avoid double-init errors
+  const existing = echarts.getInstanceByDom(el);
+  if (existing) existing.dispose();
   el.style.height = height + 'px';
   return echarts.init(el, 'dcf');
 }
@@ -127,7 +137,7 @@ function renderTreemap(domId, data, {
         let html = `<div style="${mono};font-size:12px;min-width:140px">`;
         html += `<div style="font-size:13px;font-weight:700;margin-bottom:6px">${info.name}</div>`;
         if (price != null)
-          html += `<div style="display:flex;justify-content:space-between;gap:16px"><span style="color:#7a8fa6">Precio</span><span>${fmt.num(price)}</span></div>`;
+          html += `<div style="display:flex;justify-content:space-between;gap:16px"><span style="color:#7a8fa6">Precio</span><span>${_n(price)}</span></div>`;
         if (pct != null)
           html += `<div style="display:flex;justify-content:space-between;gap:16px"><span style="color:#7a8fa6">${periodLabel}</span><span style="color:${col(pct)}">${sign(pct)}${pct.toFixed(2)}%</span></div>`;
         if (pct1d != null && periodLabel !== '1D')
@@ -155,18 +165,17 @@ function renderTreemap(domId, data, {
         formatter: (p) => {
           if (!p.data || p.data.children) return p.name;
           const d = p.data;
-          const pct = d.pct;
+          const pct   = d.pct;
           const price = d.price;
           const extra = d.extra;
-          const sign = pct !== null && pct >= 0 ? '+' : '';
+          const sign  = pct !== null && pct >= 0 ? '+' : '';
           const pctStr = pct !== null ? `${sign}${pct.toFixed(2)}%` : '';
-
-          // Show content based on available space (node size)
+          // Use _n() — local formatter, no external dependency
           if (extra != null) {
-            return `{tk|${p.name}}\n{px|${price ? fmt.num(price) : ''}}\n{pct|${pctStr}}\n{ex|${typeof extra === 'number' ? extra.toFixed(2) + '%' : extra}}`;
+            return `{tk|${p.name}}\n{px|${price ? _n(price) : ''}}\n{pct|${pctStr}}\n{ex|${typeof extra === 'number' ? extra.toFixed(2) + '%' : extra}}`;
           }
           if (price != null) {
-            return `{tk|${p.name}}\n{px|${fmt.num(price)}}\n{pct|${pctStr}}`;
+            return `{tk|${p.name}}\n{px|${_n(price)}}\n{pct|${pctStr}}`;
           }
           return `{tk|${p.name}}\n{pct|${pctStr}}`;
         },
