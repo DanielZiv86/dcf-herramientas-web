@@ -4,21 +4,18 @@ services:
     runtime: python
     region: oregon
     plan: free
-    rootDir: backend
-    buildCommand: pip install -r ../requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m uvicorn main:app --host 0.0.0.0 --port $PORT --app-dir backend
     envVars:
       - key: DEV_BYPASS_AUTH
         value: "true"
       - key: DEBUG
         value: "false"
-      - key: APP_PORT
-        value: "10000"
       - key: JWT_SECRET
-        generateValue: true          # Render genera uno aleatorio automáticamente
+        generateValue: true
       - key: FINNHUB_TOKEN
-        sync: false                  # Lo completás manualmente en el dashboard
+        sync: false
       - key: STREAMLIT_DATA_PATH
-        value: ""                    # Vacío → usa backend/data/ (Excel del repo)
+        value: ""
       - key: ALLOWED_ORIGINS
         value: "https://danielziv86.github.io,https://app.dcfinversiones.com"
