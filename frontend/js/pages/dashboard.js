@@ -72,7 +72,7 @@ async function _loadDashboard() {
 
   if (merval.status === 'fulfilled') {
     dcfCharts.renderTreemap('chart-merval-treemap', merval.value, {
-      height: 380, labelKey: 'ticker', valueKey: 'pct_change',
+      height: 380, labelKey: 'ticker', valueKey: 'pct_change', priceKey: 'price', showPrice: true,
     });
   }
 

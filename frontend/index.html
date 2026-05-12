@@ -4,59 +4,45 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>DCF | Herramientas de Análisis</title>
-  <meta name="description" content="Herramientas de análisis de mercado financiero argentino — DCF Inversiones"/>
+  <meta name="description" content="Herramientas de análisis de mercado financiero — DCF Inversiones"/>
   <link rel="icon" href="assets/dcf-logo.png"/>
-
-  <!-- Styles -->
   <link rel="stylesheet" href="css/design-system.css"/>
   <link rel="stylesheet" href="css/components.css"/>
   <link rel="stylesheet" href="css/pages.css"/>
-
-  <!-- ECharts 5 -->
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
 </head>
 <body>
 <div class="app-shell">
 
-  <!-- ── Sidebar ──────────────────────────────────────────────────────── -->
-  <aside class="sidebar">
-    <div class="sidebar-logo">
+  <!-- ── Top Navigation ───────────────────────────────────────────────────── -->
+  <header class="topnav">
+    <div class="topnav-logo">
       <img src="assets/dcf-logo.png" alt="DCF" onerror="this.style.display='none'"/>
-      <span>DCF</span>
+      <span class="topnav-logo-text">DCF</span>
     </div>
-    <nav class="sidebar-nav" id="sidebar-nav">
+
+    <nav class="topnav-links" id="topnav-links">
       <!-- Built by app.js -->
     </nav>
-    <div class="sidebar-footer">
-      <div class="text-xs">v2.0 — HTML</div>
-      <div class="status-dot" style="margin-top:6px"></div>
+
+    <div class="topnav-right">
+      <div class="status-dot" title="Live"></div>
+      <span class="topnav-user" id="topbar-user"></span>
+      <button class="topnav-logout" id="logout-btn">Salir →</button>
     </div>
-  </aside>
+  </header>
 
-  <!-- ── Main content ─────────────────────────────────────────────────── -->
+  <!-- ── Main content ──────────────────────────────────────────────────────── -->
   <main class="main-content">
-
-    <!-- Topbar -->
-    <header class="topbar">
-      <div class="topbar-title" id="topbar-title">Dashboard</div>
-      <div class="topbar-right">
-        <div class="topbar-user" id="topbar-user"></div>
-        <div class="topbar-logout" id="logout-btn">Salir →</div>
-      </div>
-    </header>
-
-    <!-- Page content -->
     <div id="page-content"></div>
-
   </main>
+
 </div>
 
 <!-- ── Scripts ───────────────────────────────────────────────────────────── -->
 <script src="js/api.js"></script>
 <script src="js/charts.js"></script>
 <script src="js/components.js"></script>
-
-<!-- Page modules (loaded eagerly for simplicity) -->
 <script src="js/pages/dashboard.js"></script>
 <script src="js/pages/bonos.js"></script>
 <script src="js/pages/letras.js"></script>
@@ -64,8 +50,6 @@
 <script src="js/pages/ons.js"></script>
 <script src="js/pages/fci.js"></script>
 <script src="js/pages/fundamental.js"></script>
-
-<!-- Router (must load last) -->
 <script src="js/app.js"></script>
 </body>
 </html>
