@@ -6,7 +6,7 @@ services:
     plan: free
     rootDir: backend
     buildCommand: pip install -r ../requirements.txt
-    startCommand: python -c "import sys; sys.path.insert(0,'.');  import uvicorn; uvicorn.run('main:app', host='0.0.0.0', port=10000)"
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DEV_BYPASS_AUTH
         value: "true"
