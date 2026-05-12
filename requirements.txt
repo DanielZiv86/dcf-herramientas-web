@@ -22,7 +22,7 @@ google-auth==2.35.0
 pandas==2.2.3
 numpy==1.26.4
 openpyxl==3.1.5
-pyarrow==17.0.0             # parquet cache
+# pyarrow: opcional, solo para cache de Finnhub en disco. Render no lo necesita.
 
 # --- Market data ---
 yfinance==0.2.48

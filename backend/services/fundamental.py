@@ -49,13 +49,20 @@ def _client() -> httpx.AsyncClient:
     )
 
 
+try:
+    import pyarrow  # noqa: F401
+    _HAS_PARQUET = True
+except ImportError:
+    _HAS_PARQUET = False
+
+
 def _parquet_path(ticker: str, kind: str) -> Path:
     PARQUET_DIR.mkdir(parents=True, exist_ok=True)
     return PARQUET_DIR / f"{ticker.upper()}_{kind}.parquet"
 
 
 def _is_fresh(path: Path) -> bool:
-    if not path.exists():
+    if not _HAS_PARQUET or not path.exists():
         return False
     return (time.time() - path.stat().st_mtime) < PARQUET_TTL
 
@@ -223,7 +230,7 @@ def _parse_annual_financials(reports: list[dict]) -> pd.DataFrame:
 async def get_financials(ticker: str) -> dict:
     """Returns parsed annual financials — uses disk cache."""
     cache_path = _parquet_path(ticker, "financials")
-    if _is_fresh(cache_path):
+    if _HAS_PARQUET and _is_fresh(cache_path):
         try:
             df = pd.read_parquet(cache_path)
             return {"ticker": ticker, "data": df.to_dict(orient="records")}
@@ -234,7 +241,7 @@ async def get_financials(ticker: str) -> dict:
         raw = await _get("/stock/financials-reported", symbol=ticker.upper(), freq="annual")
         reports = raw.get("data", [])
         df = _parse_annual_financials(reports)
-        if not df.empty:
+        if not df.empty and _HAS_PARQUET:
             df.to_parquet(cache_path, index=False)
         return {"ticker": ticker, "data": df.to_dict(orient="records")}
     except Exception as e:
