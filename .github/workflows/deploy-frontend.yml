@@ -1,0 +1,52 @@
+name: Deploy frontend → GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
+  workflow_dispatch:   # permite disparar manualmente desde GitHub UI
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Inject API URL into api.js
+        run: |
+          # Reemplaza el placeholder con la URL real de Render
+          # Configurá RENDER_API_URL como secret en GitHub → Settings → Secrets
+          if [ -n "${{ secrets.RENDER_API_URL }}" ]; then
+            sed -i "s|https://dcf-herramientas-api.onrender.com|${{ secrets.RENDER_API_URL }}|g" frontend/js/api.js
+            echo "API URL inyectada: ${{ secrets.RENDER_API_URL }}"
+          else
+            echo "RENDER_API_URL no configurado — usando URL por defecto en api.js"
+          fi
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload frontend as Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

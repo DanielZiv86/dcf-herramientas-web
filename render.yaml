@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: dcf-herramientas-api
+    runtime: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r ../requirements.txt
+    startCommand: python -c "import sys; sys.path.insert(0,'.');  import uvicorn; uvicorn.run('main:app', host='0.0.0.0', port=10000)"
+    envVars:
+      - key: DEV_BYPASS_AUTH
+        value: "true"
+      - key: DEBUG
+        value: "false"
+      - key: APP_PORT
+        value: "10000"
+      - key: JWT_SECRET
+        generateValue: true          # Render genera uno aleatorio automáticamente
+      - key: FINNHUB_TOKEN
+        sync: false                  # Lo completás manualmente en el dashboard
+      - key: STREAMLIT_DATA_PATH
+        value: ""                    # Vacío → usa backend/data/ (Excel del repo)
+      - key: ALLOWED_ORIGINS
+        value: "https://dcfinversiones.github.io,https://app.dcfinversiones.com"
