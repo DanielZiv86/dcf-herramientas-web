@@ -21,4 +21,4 @@ services:
       - key: STREAMLIT_DATA_PATH
         value: ""                    # Vacío → usa backend/data/ (Excel del repo)
       - key: ALLOWED_ORIGINS
-        value: "https://dcfinversiones.github.io,https://app.dcfinversiones.com"
+        value: "https://danielziv86.github.io,https://app.dcfinversiones.com"
