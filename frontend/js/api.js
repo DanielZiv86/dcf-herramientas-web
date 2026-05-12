@@ -5,7 +5,7 @@
 const API_BASE = (
   window.location.hostname === 'localhost' ||
   window.location.hostname === '127.0.0.1'
-) ? '' : (window._DCF_API_URL || 'https://dcf-herramientas-api.onrender.com');
+) ? '' : (window._DCF_API_URL || 'https://dcf-herramientas-web.onrender.com');
 
 class APIError extends Error {
   constructor(message, status) {

@@ -18,4 +18,4 @@ services:
       - key: STREAMLIT_DATA_PATH
         value: ""
       - key: ALLOWED_ORIGINS
-        value: "https://danielziv86.github.io,https://app.dcfinversiones.com"
+        value: "https://danielziv86.github.io,https://dcf-herramientas-web.onrender.com,https://app.dcfinversiones.com"
