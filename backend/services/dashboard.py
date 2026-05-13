@@ -185,11 +185,13 @@ async def load_sp500_treemap() -> list[dict]:
         if sectors_df.empty:
             return []
 
-        # 6 tickers por sector (todos los 11 sectores visibles, ~66 tickers total)
+        # Top 12 por sector ordenados por market cap (CSV ya ordenado así).
+        # Streamlit usa todos 340 via batch yfinance; nosotros hacemos llamadas
+        # paralelas individuales — 12×11 sectores = ~132 tickers, manejable.
         sampled = (
             sectors_df.dropna(subset=["ticker"])
             .groupby("sector", group_keys=False)
-            .apply(lambda g: g.head(6))
+            .apply(lambda g: g.head(12))
             .reset_index(drop=True)
         )
         tickers = sampled["ticker"].tolist()
@@ -273,6 +275,7 @@ async def load_sp500_treemap_period(period: str = "1M") -> list[dict]:
 # ── MERVAL treemap ────────────────────────────────────────────────────────────
 
 async def load_merval_treemap() -> list[dict]:
+    """Panel Líder — tamaño de celda = volumen operado (igual que Streamlit)."""
     try:
         stocks_df = await data912.get_arg_stocks()
         rows = []
@@ -281,13 +284,18 @@ async def load_merval_treemap() -> list[dict]:
             if row.empty:
                 continue
             r = row.iloc[0]
-            pct = r.get("pct_change", 0)
+            pct    = r.get("pct_change", 0)
+            volume = float(r.get("v", 1) or 1)   # volumen operado en ARS
+            price  = float(r.get("c", 0) or 0)
             rows.append({
                 "ticker": tk,
-                "price": float(r.get("c", 0)),
+                "price": price,
                 "pct_change": float(pct) if pct is not None else 0,
-                "volume": float(r.get("v", 0)),
+                "volume": volume,
+                "dollar_vol": volume,   # sizeKey en frontend
             })
+        # Ordenar por volumen para que los más operados sean los más visibles
+        rows.sort(key=lambda x: x["volume"], reverse=True)
         return rows
     except Exception as e:
         logger.warning("load_merval_treemap failed: %s", e)
