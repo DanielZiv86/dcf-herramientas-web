@@ -121,11 +121,12 @@ function renderTreemap(domId, data, {
   labelKey = 'ticker',
   valueKey = 'pct_change',
   priceKey = 'price',
+  sizeKey = null,        // if set, use this field for cell size (e.g. 'dollar_vol')
   extraKey = null,
   extraLabel = '',
   groupKey = null,
   periodLabel = '1D',
-  bondStyle = false,     // true = bondterminal dark-cell style
+  bondStyle = false,
 } = {}) {
   const chart = initChart(domId, height);
   if (!chart) return;
@@ -135,8 +136,8 @@ function renderTreemap(domId, data, {
         ? _groupedBondTreemap(data, groupKey, labelKey, valueKey, priceKey, extraKey)
         : _flatBondTreemap(data, labelKey, valueKey, priceKey, extraKey))
     : (groupKey
-        ? _groupedTreemap(data, groupKey, labelKey, valueKey, priceKey, extraKey)
-        : _flatTreemap(data, labelKey, valueKey, priceKey, extraKey));
+        ? _groupedTreemap(data, groupKey, labelKey, valueKey, priceKey, extraKey, sizeKey)
+        : _flatTreemap(data, labelKey, valueKey, priceKey, extraKey, sizeKey));
 
   const mono = "'JetBrains Mono',monospace";
 
@@ -300,22 +301,23 @@ function _groupedBondTreemap(data, groupKey, labelKey, valueKey, priceKey, extra
 
 // ── Equity-style flat/grouped treemap (colored cells) ──────────────────────
 
-function _flatTreemap(data, labelKey, valueKey, priceKey, extraKey) {
+function _flatTreemap(data, labelKey, valueKey, priceKey, extraKey, sizeKey) {
   return data.map(d => {
     const pct   = d[valueKey] ?? 0;
     const price = d[priceKey] ?? null;
     const extra = extraKey ? (d[extraKey] ?? null) : null;
     const pct1d = d.pct_1d ?? null;
+    const size  = sizeKey ? (Math.abs(d[sizeKey] ?? 0) || 0.01) : (Math.abs(pct) || 0.01);
     return {
       name: d[labelKey],
-      value: Math.abs(pct) || 0.01,
+      value: size,
       pct, price, extra, pct1d,
       itemStyle: { color: _treemapColor(pct) },
     };
   });
 }
 
-function _groupedTreemap(data, groupKey, labelKey, valueKey, priceKey, extraKey) {
+function _groupedTreemap(data, groupKey, labelKey, valueKey, priceKey, extraKey, sizeKey) {
   const groups = {};
   for (const d of data) {
     const g = d[groupKey] || 'Other';
@@ -324,7 +326,7 @@ function _groupedTreemap(data, groupKey, labelKey, valueKey, priceKey, extraKey)
   }
   return Object.entries(groups).map(([group, items]) => ({
     name: group,
-    value: items.reduce((s, d) => s + Math.abs(d[valueKey] ?? 0), 0),
+    value: items.reduce((s, d) => s + (sizeKey ? Math.abs(d[sizeKey] ?? 0) : Math.abs(d[valueKey] ?? 0)), 0),
     children: _flatTreemap(items, labelKey, valueKey, priceKey, extraKey),
   }));
 }

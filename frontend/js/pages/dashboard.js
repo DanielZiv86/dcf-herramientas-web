@@ -73,6 +73,7 @@ async function _loadDashboard() {
     dcfCharts.renderTreemap('chart-sp500-treemap', sp500.value, {
       height: 400, labelKey: 'ticker', valueKey: 'pct_change',
       priceKey: 'price', groupKey: 'sector', periodLabel: '1D',
+      sizeKey: 'dollar_vol',   // cell size by dollar volume (like Streamlit)
     });
   } else {
     document.getElementById('chart-sp500-treemap').innerHTML =

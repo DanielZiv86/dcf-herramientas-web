@@ -177,34 +177,46 @@ async def load_tasas_soberanas() -> tuple[list[dict], Optional[float]]:
 # ── S&P 500 treemap ───────────────────────────────────────────────────────────
 
 async def load_sp500_treemap() -> list[dict]:
+    """
+    Same logic as Streamlit load_sp500_treemap():
+    - ALL tickers from sp500_sectors.csv (one batch call)
+    - Cell size = dollar_vol (price × volume) — bigger stocks get bigger cells
+    - Grouped by GICS sector
+    """
     try:
         sectors_df = await yahoo.get_sp500_sectors()
         if sectors_df.empty:
             return []
-        # Sample proportionally across sectors (~6 per sector, all 11 sectors)
-        # CSV is sorted by sector — must sample, not just slice[:N]
-        sampled = (
-            sectors_df.dropna(subset=["ticker"])
-            .groupby("sector", group_keys=False)
-            .apply(lambda g: g.head(6))
-            .reset_index(drop=True)
-        )
-        tickers = sampled["ticker"].tolist()
-        quotes = await yahoo.get_quotes(tickers)
+
+        tickers = sectors_df["ticker"].dropna().tolist()
+
+        # Single batch call with volume — same as Streamlit yfinance batch
+        quotes = await yahoo._fetch_batch(tickers, include_volume=True)
+        if not quotes:
+            return []
+
         rows = []
-        for _, row in sampled.iterrows():
+        for _, row in sectors_df.iterrows():
             tk = row["ticker"]
             sector = row.get("sector", "Other")
             q = quotes.get(tk, {})
-            pct = q.get("pct_change")
+            pct   = q.get("pct_change")
             price = q.get("price")
-            if pct is not None:
-                rows.append({
-                    "ticker": tk,
-                    "sector": sector,
-                    "pct_change": round(pct, 2),
-                    "price": round(float(price), 2) if price else None,
-                })
+            volume = q.get("volume", 0) or 0
+
+            if pct is None and price is None:
+                continue
+
+            dollar_vol = (float(price) * float(volume)) if (price and volume) else 1.0
+
+            rows.append({
+                "ticker": tk,
+                "sector": sector,
+                "pct_change": round(float(pct), 2) if pct is not None else 0.0,
+                "price": round(float(price), 2) if price else None,
+                "dollar_vol": dollar_vol,
+            })
+
         return rows
     except Exception as e:
         logger.warning("load_sp500_treemap failed: %s", e)

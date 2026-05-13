@@ -81,29 +81,43 @@ async def _fetch_chart(ticker: str, range_: str = "2d", interval: str = "1d") ->
         return None
 
 
-async def _fetch_batch(tickers: list[str]) -> dict[str, dict]:
-    """Batch quote via Yahoo v7 quote endpoint."""
+async def _fetch_batch(tickers: list[str], include_volume: bool = False) -> dict[str, dict]:
+    """Batch quote via Yahoo v7 quote endpoint. Handles large batches (300+)."""
+    if not tickers:
+        return {}
+    fields = "regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent"
+    if include_volume:
+        fields += ",regularMarketVolume"
+
+    # Yahoo can handle ~300 symbols per request; chunk if needed
+    chunk_size = 300
+    all_results: dict[str, dict] = {}
+
+    chunks = [tickers[i:i+chunk_size] for i in range(0, len(tickers), chunk_size)]
     try:
-        async with httpx.AsyncClient(headers=_HEADERS, timeout=12, follow_redirects=True) as c:
-            r = await c.get(
-                _YF_QUOTE,
-                params={
-                    "symbols": ",".join(tickers),
-                    "fields": "regularMarketPrice,regularMarketPreviousClose,regularMarketChangePercent",
-                },
-            )
-            r.raise_for_status()
-            items = r.json().get("quoteResponse", {}).get("result", [])
-            return {
-                it["symbol"]: {
-                    "price": it.get("regularMarketPrice"),
-                    "pct_change": it.get("regularMarketChangePercent"),
-                }
-                for it in items
-            }
+        async with httpx.AsyncClient(headers=_HEADERS, timeout=20, follow_redirects=True) as c:
+            for chunk in chunks:
+                try:
+                    r = await c.get(
+                        _YF_QUOTE,
+                        params={"symbols": ",".join(chunk), "fields": fields},
+                    )
+                    r.raise_for_status()
+                    items = r.json().get("quoteResponse", {}).get("result", [])
+                    for it in items:
+                        entry = {
+                            "price": it.get("regularMarketPrice"),
+                            "pct_change": it.get("regularMarketChangePercent"),
+                        }
+                        if include_volume:
+                            entry["volume"] = it.get("regularMarketVolume")
+                        all_results[it["symbol"]] = entry
+                except Exception as e:
+                    logger.debug("Yahoo batch chunk failed: %s", e)
     except Exception as e:
         logger.debug("Yahoo batch failed: %s", e)
-        return {}
+
+    return all_results
 
 
 async def _fetch_single(ticker: str) -> dict:
