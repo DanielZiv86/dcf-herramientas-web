@@ -29,14 +29,18 @@
       <!-- S&P 500 Treemap — full width -->
       <div class="card mb-3" id="card-sp500">
         <div class="card-header">
-          <div class="card-title">S&P 500 — Mapa sectorial por variación 1D</div>
+          <div class="card-title">S&P 500 — Mapa sectorial · Variación 1D · Tamaño = Volumen USD</div>
+          <div id="treemap-legend" class="treemap-legend-inline"></div>
         </div>
         <div id="chart-sp500-treemap"></div>
       </div>
 
       <!-- Panel Líder Treemap — full width -->
       <div class="card mb-3">
-        <div class="card-title" style="padding:10px 12px 4px">Panel Líder — Variación 1D</div>
+        <div class="card-header">
+          <div class="card-title">Panel Líder — Variación 1D · Tamaño = Volumen operado</div>
+          <div class="treemap-legend-inline" id="treemap-legend-merval"></div>
+        </div>
         <div id="chart-merval-treemap"></div>
       </div>
 
@@ -67,11 +71,14 @@ async function _loadDashboard() {
     api.dashboard.mervalTreemap(),
   ]);
 
+  _renderTreemapLegend('treemap-legend');
+  _renderTreemapLegend('treemap-legend-merval');
+
   if (sp500.status === 'fulfilled' && sp500.value?.length) {
     dcfCharts.renderTreemap('chart-sp500-treemap', sp500.value, {
-      height: 400, labelKey: 'ticker', valueKey: 'pct_change',
+      height: 440, labelKey: 'ticker', valueKey: 'pct_change',
       priceKey: 'price', groupKey: 'sector', periodLabel: '1D',
-      sizeKey: 'dollar_vol',   // cell size by dollar volume (like Streamlit)
+      sizeKey: 'dollar_vol',
     });
   } else {
     document.getElementById('chart-sp500-treemap').innerHTML =
@@ -80,7 +87,7 @@ async function _loadDashboard() {
 
   if (merval.status === 'fulfilled' && merval.value?.length) {
     dcfCharts.renderTreemap('chart-merval-treemap', merval.value, {
-      height: 320, labelKey: 'ticker', valueKey: 'pct_change',
+      height: 280, labelKey: 'ticker', valueKey: 'pct_change',
       priceKey: 'price', sizeKey: 'dollar_vol', periodLabel: '1D',
     });
   }
@@ -152,6 +159,23 @@ function _renderCedears(body, cedears) {
   const table = ui.btTable(headers, rows, { maxHeight: 280 });
   body.innerHTML = '';
   body.appendChild(table);
+}
+
+// ── Treemap color legend ──────────────────────────────────────────────────
+
+function _renderTreemapLegend(domId) {
+  const el = document.getElementById(domId);
+  if (!el) return;
+  el.innerHTML = `
+    <div class="tm-legend">
+      <span class="tm-dot" style="background:#be123c"></span><span>-3%+</span>
+      <span class="tm-dot" style="background:#e11d48"></span><span>-1.5%</span>
+      <span class="tm-dot" style="background:#fb7185"></span><span>-0.5%</span>
+      <span class="tm-dot" style="background:#334155"></span><span>plano</span>
+      <span class="tm-dot" style="background:#4ade80"></span><span>+0.5%</span>
+      <span class="tm-dot" style="background:#16a34a"></span><span>+1.5%</span>
+      <span class="tm-dot" style="background:#166534"></span><span>+3%+</span>
+    </div>`;
 }
 
 // ── Ticker band ───────────────────────────────────────────────────────────

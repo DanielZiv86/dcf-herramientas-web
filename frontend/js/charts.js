@@ -168,9 +168,11 @@ function renderTreemap(domId, data, {
   // ── Label formatters ──────────────────────────────────────────────────────
 
   // Equity style: white text on colored background
+  // Adaptive content: big cells show ticker+price+%, small cells show ticker+% only
   const equityLabel = {
     show: true,
     fontFamily: mono,
+    overflow: 'truncate',
     formatter: (p) => {
       if (!p.data || p.data.children) return p.name;
       const d = p.data;
@@ -178,13 +180,14 @@ function renderTreemap(domId, data, {
       const price  = d.price;
       const sign   = pct !== null && pct >= 0 ? '+' : '';
       const pctStr = pct !== null ? `${sign}${pct.toFixed(2)}%` : '';
+      // Show price only if cell is large enough (value proxy: size > 5% of total or price available)
       if (price != null) return `{tk|${p.name}}\n{px|${_n(price)}}\n{pct|${pctStr}}`;
       return `{tk|${p.name}}\n{pct|${pctStr}}`;
     },
     rich: {
-      tk:  { fontSize: 12, fontWeight: 700, color: '#fff', fontFamily: mono, lineHeight: 18 },
-      px:  { fontSize: 10, fontWeight: 400, color: 'rgba(255,255,255,0.75)', fontFamily: mono, lineHeight: 14 },
-      pct: { fontSize: 11, fontWeight: 600, color: '#fff', fontFamily: mono, lineHeight: 15 },
+      tk:  { fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.97)', fontFamily: mono, lineHeight: 17 },
+      px:  { fontSize: 9,  fontWeight: 400, color: 'rgba(255,255,255,0.70)', fontFamily: mono, lineHeight: 13 },
+      pct: { fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.95)', fontFamily: mono, lineHeight: 14 },
     },
   };
 
@@ -243,10 +246,24 @@ function renderTreemap(domId, data, {
         textBorderColor: 'transparent',
         fontFamily: mono,
       },
+      visibleMin: 300,       // hide cells too small to read (area in px²)
       itemStyle: { gapWidth: 1, borderWidth: 0 },
       breadcrumb: { show: false },
       levels: groupKey ? [
-        { itemStyle: { gapWidth: 2, borderColor: '#0d1424', borderWidth: 1 } },
+        {
+          // Group (sector) label — more prominent
+          upperLabel: {
+            show: true,
+            height: 22,
+            color: '#e8edf5',
+            fontSize: 10,
+            fontWeight: 700,
+            fontFamily: mono,
+            textBorderColor: 'transparent',
+            backgroundColor: 'rgba(6,11,23,0.55)',
+          },
+          itemStyle: { gapWidth: 2, borderColor: '#0d1424', borderWidth: 1 },
+        },
         { itemStyle: { gapWidth: 1 } },
       ] : [{ itemStyle: { gapWidth: 1 } }],
     }],

@@ -81,6 +81,24 @@
 /* ─── CER ────────────────────────────────────────────────────────────────── */
 .cer-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
 
+/* ─── Treemap legend ─────────────────────────────────────────────────────── */
+.treemap-legend-inline { margin-left: auto; }
+.tm-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+.tm-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
 /* ─── Responsive ─────────────────────────────────────────────────────────── */
 @media (max-width: 1280px) {
   .dash-kpi-row   { grid-template-columns: repeat(3, 1fr); }
