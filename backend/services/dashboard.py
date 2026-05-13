@@ -178,42 +178,46 @@ async def load_tasas_soberanas() -> tuple[list[dict], Optional[float]]:
 
 async def load_sp500_treemap() -> list[dict]:
     """
-    Same logic as Streamlit load_sp500_treemap():
-    - ALL tickers from sp500_sectors.csv (one batch call)
-    - Cell size = dollar_vol (price × volume) — bigger stocks get bigger cells
-    - Grouped by GICS sector
+    S&P500 treemap — todos los sectores, 6 tickers por sector.
+    Tamaño de celda = dollar_vol (precio × volumen), igual que Streamlit.
+    Usa llamadas individuales al chart (v8) que sí funcionan desde cloud.
     """
     try:
         sectors_df = await yahoo.get_sp500_sectors()
         if sectors_df.empty:
             return []
 
-        tickers = sectors_df["ticker"].dropna().tolist()
+        # 6 tickers por sector (todos los 11 sectores visibles, ~66 tickers total)
+        sampled = (
+            sectors_df.dropna(subset=["ticker"])
+            .groupby("sector", group_keys=False)
+            .apply(lambda g: g.head(6))
+            .reset_index(drop=True)
+        )
+        tickers = sampled["ticker"].tolist()
 
-        # Single batch call with volume — same as Streamlit yfinance batch
-        quotes = await yahoo._fetch_batch(tickers, include_volume=True)
-        if not quotes:
-            return []
+        # Parallel individual chart calls (v8 endpoint — no bloqueado)
+        quotes = await yahoo.get_quotes(tickers)
 
         rows = []
-        for _, row in sectors_df.iterrows():
+        for _, row in sampled.iterrows():
             tk = row["ticker"]
             sector = row.get("sector", "Other")
             q = quotes.get(tk, {})
-            pct   = q.get("pct_change")
-            price = q.get("price")
-            volume = q.get("volume", 0) or 0
+            pct    = q.get("pct_change")
+            price  = q.get("price")
+            volume = q.get("volume") or 0
 
-            if pct is None and price is None:
+            if price is None:
                 continue
 
-            dollar_vol = (float(price) * float(volume)) if (price and volume) else 1.0
+            dollar_vol = float(price) * float(volume) if volume else float(price or 1)
 
             rows.append({
                 "ticker": tk,
                 "sector": sector,
                 "pct_change": round(float(pct), 2) if pct is not None else 0.0,
-                "price": round(float(price), 2) if price else None,
+                "price": round(float(price), 2),
                 "dollar_vol": dollar_vol,
             })
 

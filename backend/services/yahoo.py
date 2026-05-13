@@ -123,12 +123,18 @@ async def _fetch_batch(tickers: list[str], include_volume: bool = False) -> dict
 async def _fetch_single(ticker: str) -> dict:
     result = await _fetch_chart(ticker)
     if not result:
-        return {"price": None, "pct_change": None}
+        return {"price": None, "pct_change": None, "volume": None}
     meta = result.get("meta", {})
     price = meta.get("regularMarketPrice")
-    prev = meta.get("chartPreviousClose") or meta.get("previousClose")
-    pct = round((price - prev) / prev * 100, 2) if (price and prev and prev != 0) else None
-    return {"price": price, "pct_change": pct}
+    prev  = meta.get("chartPreviousClose") or meta.get("previousClose")
+    pct   = round((price - prev) / prev * 100, 2) if (price and prev and prev != 0) else None
+    # Volume from indicators
+    try:
+        vols = result.get("indicators", {}).get("quote", [{}])[0].get("volume", [])
+        volume = vols[-1] if vols else None
+    except Exception:
+        volume = None
+    return {"price": price, "pct_change": pct, "volume": volume}
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -152,7 +158,8 @@ async def get_quotes(tickers: list[str]) -> dict[str, dict]:
             batch = await _fetch_batch(needed)
             _quote_cache.update(batch)
 
-            still_missing = [t for t in needed if t not in _quote_cache or _quote_cache[t]["price"] is None]
+            # Batch is blocked by Yahoo — go straight to individual chart calls
+            still_missing = needed  # skip batch, use individual
             if still_missing:
                 tasks = [_fetch_single(t) for t in still_missing]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -160,7 +167,7 @@ async def get_quotes(tickers: list[str]) -> dict[str, dict]:
                     if not isinstance(r, Exception) and r.get("price"):
                         _quote_cache[t] = r
 
-        return {t: _quote_cache.get(t, {"price": None, "pct_change": None}) for t in tickers}
+        return {t: _quote_cache.get(t, {"price": None, "pct_change": None, "volume": None}) for t in tickers}
 
 
 async def get_history(tickers: list[str], period: str = "1mo") -> pd.DataFrame:
