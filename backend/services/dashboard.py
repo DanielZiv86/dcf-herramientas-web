@@ -185,15 +185,9 @@ async def load_sp500_treemap() -> list[dict]:
         if sectors_df.empty:
             return []
 
-        # Top 12 por sector ordenados por market cap (CSV ya ordenado así).
-        # Streamlit usa todos 340 via batch yfinance; nosotros hacemos llamadas
-        # paralelas individuales — 12×11 sectores = ~132 tickers, manejable.
-        sampled = (
-            sectors_df.dropna(subset=["ticker"])
-            .groupby("sector", group_keys=False)
-            .apply(lambda g: g.head(12))
-            .reset_index(drop=True)
-        )
+        # Todos los tickers — batch auth Yahoo (cookie+crumb) maneja 340 de una.
+        # Si falla el batch, get_quotes() hace fallback a chart individual.
+        sampled = sectors_df.dropna(subset=["ticker"]).copy()
         tickers = sampled["ticker"].tolist()
 
         # Parallel individual chart calls (v8 endpoint — no bloqueado)
