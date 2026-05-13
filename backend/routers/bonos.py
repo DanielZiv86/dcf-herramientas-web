@@ -18,10 +18,35 @@ async def get_hd(
     return await svc.get_hd_table(mercado)
 
 
-@router.get("/todos")
-async def get_todos(dcf_session: Optional[str] = Cookie(default=None)):
+@router.get("/bopreal")
+async def get_bopreal(
+    mercado: str = Query(default="MEP", pattern="^(PESOS|MEP|CCL)$"),
+    dcf_session: Optional[str] = Cookie(default=None),
+):
     require_auth(dcf_session)
-    return await svc.get_full_table()
+    return await svc.get_bopreal_table(mercado)
+
+
+@router.get("/todos")
+async def get_todos(
+    mercado: str = Query(default="MEP", pattern="^(PESOS|MEP|CCL)$"),
+    dcf_session: Optional[str] = Cookie(default=None),
+):
+    require_auth(dcf_session)
+    # Return HD + BOPREAL in parallel
+    from services.bonds import get_hd_table, get_bopreal_table
+    import asyncio
+    hd, bop = await asyncio.gather(
+        get_hd_table(mercado),
+        get_bopreal_table(mercado),
+        return_exceptions=True,
+    )
+    result = []
+    if not isinstance(hd, Exception):
+        for r in hd: r["group"] = "HD"; result.append(r)
+    if not isinstance(bop, Exception):
+        for r in bop: r.setdefault("group", "BOPREAL"); result.append(r)
+    return result
 
 
 @router.get("/riesgo-pais")

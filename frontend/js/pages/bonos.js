@@ -1,35 +1,36 @@
-/* ─── Bonos Soberanos page ───────────────────────────────────────────────── */
+/* ─── Bonos Soberanos page — replicates Streamlit layout ─────────────────── */
 
 (window.pages = window.pages || {}).bonos = async function(container) {
   container.innerHTML = `
     <div class="page">
       <div class="page-header"><h1>Bonos Soberanos</h1></div>
 
-      <!-- Tasas soberanas KPIs -->
+      <!-- Tasas KPIs -->
       <div id="bonos-tasas" class="dash-tasas-row mb-3"></div>
 
+      <!-- Pills -->
       <div id="bonos-pills" class="mb-3"></div>
       <div id="bonos-content"></div>
     </div>`;
 
-  // Load tasas soberanas at the top
-  _loadTasasBadge(container.querySelector('#bonos-tasas'));
+  _loadTasasBadge(document.getElementById('bonos-tasas'));
 
-  const pillEl = document.getElementById('bonos-pills');
+  const pillEl  = document.getElementById('bonos-pills');
   const content = document.getElementById('bonos-content');
 
   const pillsEl = ui.pills(['SOBERANOS', 'SENSIBILIDAD'], 0, (i) => {
     if (i === 0) renderSoberanos(content);
-    else renderSensibilidad(content);
+    else         renderSensibilidad(content);
   });
   pillEl.appendChild(pillsEl);
 
   renderSoberanos(content);
 };
 
+// ── Tasas soberanas KPIs ──────────────────────────────────────────────────
+
 async function _loadTasasBadge(el) {
   if (!el) return;
-  el.innerHTML = ui.skeletonKpiRow(5).outerHTML;
   try {
     const { tasas = [], spread_ley_ar_vs_ny } = await api.dashboard.tasas();
     const labels = { AL30D: 'AL30D', GD30D: 'GD30D', AL35D: 'AL35D', GD35D: 'GD35D' };
@@ -42,141 +43,195 @@ async function _loadTasasBadge(el) {
   } catch { el.innerHTML = ''; }
 }
 
+// ── SOBERANOS view ────────────────────────────────────────────────────────
+
 async function renderSoberanos(container) {
   container.innerHTML = `
     <div class="bonos-layout">
+
+      <!-- Left: tabla + mercado selector -->
       <div>
+        <div class="flex items-center gap-3 mb-3">
+          <div class="text-muted text-xs uppercase" style="font-family:var(--font-mono)">Mercado</div>
+          <div id="bonos-mercado-pills"></div>
+        </div>
         <div id="bonos-section-tabla"></div>
         <div id="bonos-tabla-wrap"></div>
       </div>
+
+      <!-- Right: curva + riesgo pais + top TIR -->
       <div>
         <div class="card mb-3">
           <div class="card-header">
-            <div class="card-title">Curva TIR — Hard Dollar</div>
+            <div class="card-title">Curva TIR — Hard Dollar (MEP)</div>
           </div>
           <div id="chart-curva-tir"></div>
         </div>
         <div class="card mb-3">
-          <div class="card-title" style="padding:10px 12px 0">Bond Market Heatmap</div>
-          <div id="chart-bonos-treemap"></div>
-        </div>
-        <div class="card mb-3">
-          <div class="card-title" style="padding:10px 12px 0">Riesgo País (EMBI)</div>
+          <div class="card-header">
+            <div class="card-title" id="rp-title">Riesgo País (EMBI)</div>
+            <div id="rp-pills"></div>
+          </div>
           <div id="chart-riesgo-pais"></div>
+        </div>
+        <div class="card">
+          <div class="card-title" style="padding:10px 12px 6px">Mayor TIR — MEP</div>
+          <div id="bonos-top-tir"></div>
         </div>
       </div>
     </div>`;
 
-  // Load in parallel
-  const [full, rp] = await Promise.allSettled([
-    api.bonos.todos(),
-    api.bonos.riesgoPais(),
+  let activeMercado = 'MEP';
+
+  // Mercado pills
+  const mpEl = document.getElementById('bonos-mercado-pills');
+  const mpills = ui.pills(['PESOS', 'MEP', 'CCL'], 1, async (_, label) => {
+    activeMercado = label;
+    await _loadBondTable(label);
+    _renderCurvaTIR(label);
+  }, 'pills-sm');
+  mpEl.appendChild(mpills);
+
+  // Riesgo País period pills
+  const rpPillEl = document.getElementById('rp-pills');
+  const rpPills = ui.pills(['3M', '6M', '1A', '2A', 'MAX'], 2, (_, label) => _loadRiesgoPais(label), 'pills-sm');
+  rpPillEl.appendChild(rpPills);
+
+  // Load all in parallel
+  document.getElementById('bonos-section-tabla').innerHTML =
+    ui.sectionLabel('Soberanos Ley NY / Ley AR / BOPREAL');
+
+  await Promise.allSettled([
+    _loadBondTable('MEP'),
+    _loadRiesgoPais('1A'),
   ]);
 
-  if (full.status === 'fulfilled') {
-    _renderBonosTabla(full.value);
-    _renderCurvaTIR(full.value);
-    _renderBonosTreemap(full.value);
-  }
-
-  if (rp.status === 'fulfilled') {
-    _renderRiesgoPais(rp.value);
-  }
+  _renderCurvaTIR('MEP');
 }
 
-function _renderBonosTabla(data) {
-  const secEl = document.getElementById('bonos-section-tabla');
-  if (secEl) secEl.innerHTML = ui.sectionLabel('Tabla unificada — MEP');
+// ── Bond table ────────────────────────────────────────────────────────────
+
+async function _loadBondTable(mercado) {
   const wrap = document.getElementById('bonos-tabla-wrap');
   if (!wrap) return;
+  wrap.innerHTML = '';
+  wrap.appendChild(ui.skeletonTable(12, 5));
 
-  // Filter to MEP only for default view
-  const mep = data.filter(d => d.mercado === 'MEP');
+  try {
+    const data = await api.bonos.todos(mercado);
+    _renderBonosTabla(wrap, data, mercado);
+    _renderTopTIR(data);
+  } catch (e) {
+    wrap.innerHTML = `<p class="text-negative text-sm" style="font-family:var(--font-mono);padding:12px">${e.message}</p>`;
+  }
+}
 
-  // Group by bond family
-  const globales  = mep.filter(d => d.base?.startsWith('GD'));
-  const bonares   = mep.filter(d => ['AL','AE','AN','AO'].some(p => d.base?.startsWith(p)));
-  const bopreales = mep.filter(d => d.group === 'BOPREAL');
+function _renderBonosTabla(container, data, mercado) {
+  const headers = ['Ticker', 'Precio USD', 'Dur. Mod', 'TIR %'];
 
-  const headers = ['Ticker', 'Precio USD', 'TIR %', 'Dur. Mod'];
-
-  function groupRows(items, cls, label, color) {
+  function group(label, colorClass, items) {
     if (!items.length) return '';
     const rows = items.map(d => [
-      `<span class="${color} font-semibold tabular">${d.ticker}</span>`,
-      fmt.usd(d.precio, 2),
-      d.tir !== null ? `<span class="${ui.tirColor(d.tir)} tabular">${fmt.num(d.tir)}%</span>` : '—',
-      fmt.num(d.duration, 2),
+      `<span class="${colorClass} font-semibold tabular">${d.ticker}</span>`,
+      d.precio ? `$${_n(d.precio)}` : '—',
+      _n(d.duration, 2),
+      d.tir != null
+        ? `<span class="${d.tir >= 0 ? 'tir-positive' : 'tir-negative'} font-semibold tabular">${d.tir.toFixed(2)}%</span>`
+        : '—',
     ]);
     const table = ui.btTable(headers, rows, { maxHeight: null });
-    const groupHeader = `<div class="bond-group-header ${cls} mb-2">${label}</div>`;
-    return groupHeader + table.outerHTML;
+    return `<div class="bond-group-header ${colorClass === 'ticker-sky' ? 'bond-group-ny' : colorClass === 'ticker-violet' ? 'bond-group-ar' : 'bond-group-bopreal'} mb-1">${label}</div>${table.outerHTML}`;
   }
 
-  wrap.innerHTML =
-    groupRows(globales,  'bond-group-ny',      '🇺🇸 Soberanos Ley NY',   'ticker-sky') +
-    groupRows(bonares,   'bond-group-ar',      '🇦🇷 Soberanos Ley AR',   'ticker-violet') +
-    groupRows(bopreales, 'bond-group-bopreal', 'BOPREAL (USD)',          'ticker-emerald');
+  const globales  = data.filter(d => d.base?.startsWith('GD') && d.group !== 'BOPREAL');
+  const bonares   = data.filter(d => ['AL','AE','AN','AO'].some(p => d.base?.startsWith(p)) && d.group !== 'BOPREAL');
+  const bopreales = data.filter(d => d.group === 'BOPREAL');
+
+  container.innerHTML =
+    group('🇺🇸 Soberanos Ley NY',   'ticker-sky',     globales) +
+    group('🇦🇷 Soberanos Ley AR',   'ticker-violet',   bonares) +
+    group('BOPREAL (USD)',          'ticker-emerald',   bopreales);
 }
 
-function _renderCurvaTIR(data) {
-  const mep = data.filter(d => d.mercado === 'MEP' && d.tir !== null && d.duration !== null);
-  const globales  = mep.filter(d => d.base?.startsWith('GD'));
-  const bonares   = mep.filter(d => ['AL','AE','AN','AO'].some(p => d.base?.startsWith(p)));
-  const bopreales = mep.filter(d => d.group === 'BOPREAL');
+// ── TIR curve ─────────────────────────────────────────────────────────────
 
-  const series = [];
-  if (globales.length) series.push({ name: 'Ley NY', color: dcfCharts.COLORS.sky,
-    data: globales.map(d => ({ x: d.duration, y: d.tir, label: d.base })), showLabels: true });
-  if (bonares.length) series.push({ name: 'Ley AR', color: dcfCharts.COLORS.violet,
-    data: bonares.map(d => ({ x: d.duration, y: d.tir, label: d.base })), showLabels: true });
-  if (bopreales.length) series.push({ name: 'BOPREAL', color: dcfCharts.COLORS.emerald,
-    data: bopreales.map(d => ({ x: d.duration, y: d.tir, label: d.base })), showLabels: true });
+async function _renderCurvaTIR(mercado) {
+  try {
+    const data = await api.bonos.todos(mercado);
+    const mep = data.filter(d => d.tir !== null && d.duration !== null && d.group !== 'BOPREAL');
+    const globales  = mep.filter(d => d.base?.startsWith('GD'));
+    const bonares   = mep.filter(d => ['AL','AE','AN','AO'].some(p => d.base?.startsWith(p)));
+    const bopreales = data.filter(d => d.group === 'BOPREAL' && d.tir !== null && d.duration !== null);
 
-  dcfCharts.renderScatter('chart-curva-tir', series, {
-    height: 260, xLabel: 'Dur. Mod', yLabel: 'TIR %',
-    yFormatter: v => `${v?.toFixed(2)}%`,
-  });
+    const series = [];
+    if (globales.length)  series.push({ name: 'Ley NY',  color: dcfCharts.COLORS.sky,
+      data: globales.map(d => ({ x: d.duration, y: d.tir, label: d.base })), showLabels: true });
+    if (bonares.length)   series.push({ name: 'Ley AR',  color: dcfCharts.COLORS.violet,
+      data: bonares.map(d => ({ x: d.duration, y: d.tir, label: d.base })), showLabels: true });
+    if (bopreales.length) series.push({ name: 'BOPREAL', color: dcfCharts.COLORS.emerald,
+      data: bopreales.map(d => ({ x: d.duration, y: d.tir, label: d.base })), showLabels: true });
+
+    dcfCharts.renderScatter('chart-curva-tir', series, {
+      height: 260, xLabel: 'Duration (años)', yLabel: 'TIR %',
+      yFormatter: v => `${v?.toFixed(2)}%`,
+    });
+  } catch {}
 }
 
-function _renderBonosTreemap(data) {
-  const el = document.getElementById('chart-bonos-treemap');
+// ── Riesgo País chart ─────────────────────────────────────────────────────
+
+const _rpPeriods = { '3M': 90, '6M': 180, '1A': 365, '2A': 730, 'MAX': 99999 };
+
+async function _loadRiesgoPais(period = '1A') {
+  try {
+    const all = await api.bonos.riesgoPais();
+    const days = _rpPeriods[period] || 365;
+    const data = all.slice(-days);
+    const last = all[all.length - 1];
+    const rpTitle = document.getElementById('rp-title');
+    if (rpTitle && last) rpTitle.textContent = `Riesgo País (EMBI): ${Math.round(last.valor)} bps`;
+
+    dcfCharts.renderLine('chart-riesgo-pais', [
+      { name: 'EMBI', data: data.map(d => d.valor), color: dcfCharts.COLORS.accent, area: true }
+    ], { height: 200, xLabels: data.map(d => d.fecha) });
+  } catch {}
+}
+
+// ── Top TIR ───────────────────────────────────────────────────────────────
+
+function _renderTopTIR(data) {
+  const el = document.getElementById('bonos-top-tir');
   if (!el) return;
-  const mep = data.filter(d => d.mercado === 'MEP' && d.tir !== null);
-  // Add group field based on family
-  mep.forEach(d => {
-    if (d.group === 'BOPREAL') d._fam = 'BOPREAL';
-    else if (d.base?.startsWith('GD')) d._fam = 'Soberanos NY';
-    else d._fam = 'Soberanos AR';
-  });
-  dcfCharts.renderTreemap('chart-bonos-treemap', mep, {
-    height: 320, labelKey: 'base', valueKey: 'tir',
-    priceKey: 'precio', extraKey: 'tir', extraLabel: 'TIR',
-    groupKey: '_fam', periodLabel: 'TIR', bondStyle: false,
-  });
+  const sorted = data
+    .filter(d => d.tir !== null && d.group !== 'BOPREAL')
+    .sort((a, b) => b.tir - a.tir)
+    .slice(0, 7);
+
+  const headers = ['Ticker', 'Dur.', 'TIR'];
+  const rows = sorted.map(d => [
+    `<span class="${d.base?.startsWith('GD') ? 'ticker-sky' : 'ticker-violet'} font-semibold">${d.ticker}</span>`,
+    _n(d.duration, 1),
+    `<span class="tir-positive font-semibold tabular">${d.tir.toFixed(2)}%</span>`,
+  ]);
+  const table = ui.btTable(headers, rows, { maxHeight: 260 });
+  el.innerHTML = '';
+  el.appendChild(table);
 }
 
-function _renderRiesgoPais(data) {
-  if (!data || !data.length) return;
-  const dates = data.map(d => d.fecha);
-  const values = data.map(d => d.valor);
-  dcfCharts.renderLine('chart-riesgo-pais', [
-    { name: 'Riesgo País', data: values, color: dcfCharts.COLORS.accent, area: true }
-  ], { height: 200, xLabels: dates });
-}
+// ── SENSIBILIDAD view ─────────────────────────────────────────────────────
 
 async function renderSensibilidad(container) {
   container.innerHTML = `
     <div>
-      <div id="sensi-pills" class="mb-4"></div>
+      <div id="sensi-pills" class="mb-3"></div>
       <div id="sensi-table"></div>
     </div>`;
 
-  const pillEl = document.getElementById('sensi-pills');
+  const pillEl  = document.getElementById('sensi-pills');
   const tableEl = document.getElementById('sensi-table');
 
   const loadSensi = async (tipo) => {
-    tableEl.innerHTML = '<p class="text-muted text-sm">Calculando...</p>';
+    tableEl.innerHTML = '<p class="text-muted text-sm" style="font-family:var(--font-mono)">Calculando sensibilidad...</p>';
     const data = await api.bonos.sensibilidad(tipo).catch(() => []);
     _renderSensibilidadTable(tableEl, data);
   };
@@ -187,8 +242,8 @@ async function renderSensibilidad(container) {
 }
 
 function _renderSensibilidadTable(container, data) {
-  if (!data || !data.length) {
-    container.innerHTML = '<p class="text-muted text-sm">Sin datos de sensibilidad</p>';
+  if (!data?.length) {
+    container.innerHTML = '<p class="text-muted text-sm" style="font-family:var(--font-mono)">Sin datos</p>';
     return;
   }
   const shifts = Object.keys(data[0]).filter(k => k.startsWith('shift_'));
@@ -202,8 +257,14 @@ function _renderSensibilidadTable(container, data) {
       return `<span class="${cls} tabular">${v?.toFixed(2)}%</span>`;
     }),
   ]);
-
   const table = ui.btTable(headers, rows, { maxHeight: 500 });
   container.innerHTML = '';
   container.appendChild(table);
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+function _n(v, d = 2) {
+  if (v == null) return '—';
+  return Number(v).toLocaleString('es-AR', { minimumFractionDigits: d, maximumFractionDigits: d });
 }

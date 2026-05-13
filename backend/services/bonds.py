@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+
 import re
 from datetime import date
 from io import StringIO
@@ -28,8 +29,20 @@ EXPECTED_BASE = (
     "GD29", "GD30", "GD35", "GD38", "GD41", "GD46",
 )
 
-BD_BONOS_HD = "BD BONOS HD.xlsx"
+BD_BONOS_HD  = "BD BONOS HD.xlsx"
 BD_BOPREALES = "BD BOPREALES.xlsx"
+
+# BOPREAL tickers have a different naming convention in data912:
+# base (ARS pesos) → (MEP ticker, CCL ticker)
+BOPREAL_TICKER_MAP: dict[str, tuple[str, str]] = {
+    "BPOA7": ("BPA7D",  "BPA7C"),
+    "BPOA8": ("BPA8D",  "BPA8C"),
+    "BPOB7": ("BPB7D",  "BPB7C"),
+    "BPOB8": ("BPB8D",  "BPB8C"),
+    "BPOC7": ("BPC7D",  "BPC7C"),
+    "BPOD7": ("BPD7D",  "BPD7C"),
+    "BPY26": ("BPY6D",  "BPY6C"),
+}
 
 
 def _data_path() -> Path:
@@ -249,34 +262,83 @@ async def get_hd_table(mercado: str = "MEP") -> list[dict]:
     return filtered.to_dict(orient="records")
 
 
-async def get_full_table() -> list[dict]:
-    """Returns all bonds across all markets — for the unified table in bonos.py view."""
+async def get_bopreal_table(mercado: str = "MEP") -> list[dict]:
+    """Returns BOPREAL bonds table using the correct data912 ticker mapping."""
     try:
-        cf_hd = load_cashflows(BD_BONOS_HD)
-    except FileNotFoundError:
-        cf_hd = pd.DataFrame(columns=["Ticker", "Fecha", "Cashflow"])
+        cf = load_cashflows(BD_BOPREALES)
+    except FileNotFoundError as e:
+        logger.error(str(e))
+        return []
 
-    try:
-        cf_bop = load_cashflows(BD_BOPREALES)
-        cf_bop["_source"] = "BOPREAL"
-        cf_hd["_source"] = "HD"
-    except FileNotFoundError:
-        cf_bop = pd.DataFrame(columns=["Ticker", "Fecha", "Cashflow", "_source"])
-        cf_hd["_source"] = "HD"
+    base_tickers = sorted(cf["Ticker"].unique().tolist())
+    today = pd.Timestamp.today().normalize()
 
-    base_hd = sorted(cf_hd["Ticker"].unique().tolist())
-    base_bop = sorted(cf_bop["Ticker"].unique().tolist())
-    all_tickers = [f"{b}{s}" for b in (base_hd + base_bop) for _, s in MERCADOS]
+    # Fetch all relevant tickers: base (ARS) + mapped MEP/CCL
+    all_tickers = list({t for base in base_tickers
+                        for t in [base] + list(BOPREAL_TICKER_MAP.get(base, (f"{base}D", f"{base}C")))})
     prices = await _fetch_prices(all_tickers)
 
-    rows_hd = _compute_metrics(cf_hd, base_hd, prices)
-    rows_hd["group"] = "HD"
+    # MEP from AL30 for ARS→USD conversion
+    mep = prices.get("AL30D") or prices.get("AL30")
+    al30_ars = prices.get("AL30")
+    fx_mep = (al30_ars / prices["AL30D"]) if ("AL30D" in prices and "AL30" in prices and prices["AL30D"] > 0) else np.nan
 
-    rows_bop = _compute_metrics(cf_bop, base_bop, prices)
-    rows_bop["group"] = "BOPREAL"
+    rows = []
+    for base in base_tickers:
+        mep_tk, ccl_tk = BOPREAL_TICKER_MAP.get(base, (f"{base}D", f"{base}C"))
+        price_ars = prices.get(base, np.nan)
+        price_mep = prices.get(mep_tk, np.nan)
+        price_ccl = prices.get(ccl_tk, np.nan)
 
-    df = pd.concat([rows_hd, rows_bop], ignore_index=True)
-    return df.to_dict(orient="records")
+        if mercado.upper() == "MEP":
+            px_usd = price_mep
+        elif mercado.upper() == "CCL":
+            px_usd = price_ccl
+        else:
+            px_usd = (price_ars / fx_mep) if np.isfinite(price_ars) and np.isfinite(fx_mep) else np.nan
+
+        future = cf[(cf["Ticker"] == base) & (cf["Fecha"] > today)].sort_values("Fecha").dropna(subset=["Fecha", "Cashflow"])
+
+        tir = dur = np.nan
+        if np.isfinite(px_usd) and not future.empty:
+            dates_full = pd.to_datetime([today] + future["Fecha"].tolist())
+            cfs = np.concatenate(([-px_usd], future["Cashflow"].astype(float).to_numpy()))
+            tir = xirr(cfs, dates_full)
+            if not np.isnan(tir):
+                dur = macaulay_duration(future["Cashflow"].astype(float).to_numpy(), dates_full, tir)
+
+        rows.append({
+            "base": base,
+            "ticker": mep_tk if mercado.upper() == "MEP" else (ccl_tk if mercado.upper() == "CCL" else base),
+            "mercado": mercado.upper(),
+            "precio": round(float(px_usd), 4) if np.isfinite(px_usd) else None,
+            "tir": round(float(tir) * 100, 2) if not np.isnan(tir) else None,
+            "duration": round(float(dur), 2) if not np.isnan(dur) else None,
+            "group": "BOPREAL",
+        })
+
+    return rows
+
+
+async def get_full_table() -> list[dict]:
+    """Returns HD + BOPREAL across all markets."""
+    try:
+        hd, bop = await asyncio.gather(
+            get_hd_table("MEP"),
+            get_bopreal_table("MEP"),
+            return_exceptions=True,
+        )
+        result = []
+        if not isinstance(hd, Exception):
+            for r in hd:
+                r["group"] = "HD"
+                result.append(r)
+        if not isinstance(bop, Exception):
+            result.extend(bop)
+        return result
+    except Exception as e:
+        logger.error("get_full_table failed: %s", e)
+        return []
 
 
 async def get_riesgo_pais_history() -> list[dict]:

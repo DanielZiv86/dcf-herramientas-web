@@ -61,10 +61,11 @@ const api = {
     performance:   (period = '1M') => apiFetch(`/dashboard/performance?period=${period}`),
   },
   bonos: {
-    todos:       () => apiFetch('/bonos/todos'),
-    hd:         (mercado = 'MEP') => apiFetch(`/bonos/hd?mercado=${mercado}`),
-    riesgoPais: () => apiFetch('/bonos/riesgo-pais'),
-    sensibilidad: (tipo = 'GLOBALES') => apiFetch(`/bonos/sensibilidad?tipo=${tipo}`),
+    todos:       (mercado = 'MEP') => apiFetch(`/bonos/todos?mercado=${mercado}`),
+    hd:          (mercado = 'MEP') => apiFetch(`/bonos/hd?mercado=${mercado}`),
+    bopreal:     (mercado = 'MEP') => apiFetch(`/bonos/bopreal?mercado=${mercado}`),
+    riesgoPais:  () => apiFetch('/bonos/riesgo-pais'),
+    sensibilidad:(tipo = 'GLOBALES') => apiFetch(`/bonos/sensibilidad?tipo=${tipo}`),
   },
   letras: {
     carry:  () => apiFetch('/letras/carry'),
