@@ -63,23 +63,36 @@ async def get_ccl() -> list:
 
 
 async def get_ccl_mark() -> tuple[float | None, float | None]:
-    """Returns (ccl_value, pct_change) using the highest-volume pair."""
+    """Returns (ccl_value, pct_change) using the top 10 most liquid pairs.
+    CCL_close = previous session close; CCL_mark = current real-time value.
+    Variation = median of per-pair (mark-close)/close across top liquid pairs.
+    """
     items = await get_ccl()
     if not items:
         return None, None
-    # Sort by ars_volume descending, pick most liquid
+
+    # Sort by ars_volume, take top 10 most liquid (avoid distorted illiquid pairs)
     sorted_items = sorted(items, key=lambda x: float(x.get("ars_volume") or 0), reverse=True)
-    best = sorted_items[0]
+    top10 = sorted_items[:10]
+
+    # CCL value: mark of most liquid pair
+    best = top10[0]
     ccl = best.get("CCL_mark") or best.get("CCL_close") or best.get("CCL_ask")
-    # pct_change not available per-item; compute from all items avg
-    marks = [float(x["CCL_mark"]) for x in items if x.get("CCL_mark")]
-    prev_closes = [float(x["CCL_close"]) for x in items if x.get("CCL_close")]
+
+    # Per-pair pct_change, then median (robust against outliers)
+    pcts = []
+    for x in top10:
+        mark  = x.get("CCL_mark")
+        close = x.get("CCL_close")
+        if mark and close and float(close) > 0:
+            pcts.append((float(mark) - float(close)) / float(close) * 100)
+
     pct = None
-    if marks and prev_closes:
-        avg_mark = sum(marks) / len(marks)
-        avg_close = sum(prev_closes) / len(prev_closes)
-        if avg_close and avg_close != 0:
-            pct = round((avg_mark - avg_close) / avg_close * 100, 2)
+    if pcts:
+        pcts.sort()
+        mid = len(pcts) // 2
+        pct = round(pcts[mid] if len(pcts) % 2 else (pcts[mid-1] + pcts[mid]) / 2, 2)
+
     return (float(ccl) if ccl else None), pct
 
 

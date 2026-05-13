@@ -45,8 +45,8 @@
   /* Layout */
   --topnav-height:  44px;
   --subnav-height:  36px;
-  --content-max:    1600px;
-  --content-pad:    16px;
+  --content-max:    1320px;   /* bondterminal/rendimientos style — not too wide */
+  --content-pad:    20px;
   --radius-sm:      3px;
   --radius:         6px;
   --radius-lg:      10px;
