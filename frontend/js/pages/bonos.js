@@ -150,9 +150,9 @@ function _renderBonosTreemap(data) {
     else d._fam = 'Soberanos AR';
   });
   dcfCharts.renderTreemap('chart-bonos-treemap', mep, {
-    height: 300, labelKey: 'base', valueKey: 'tir',
+    height: 320, labelKey: 'base', valueKey: 'tir',
     priceKey: 'precio', extraKey: 'tir', extraLabel: 'TIR',
-    groupKey: '_fam', periodLabel: 'TIR',
+    groupKey: '_fam', periodLabel: 'TIR', bondStyle: false,
   });
 }
 
