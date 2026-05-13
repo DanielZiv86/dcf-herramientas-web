@@ -75,22 +75,20 @@ def _safe_float(d: dict, *keys) -> Optional[float]:
 
 async def load_macro() -> dict[str, Any]:
     results = await asyncio.gather(
-        data912.get_mep(),
-        data912.get_ccl_mark(),
+        data912.get_mep_ccl_al30(),  # MEP & CCL from AL30/AL30D and AL30/AL30C
         _fetch_oficial(),
         _fetch_riesgo_pais_value(),
         return_exceptions=True,
     )
 
-    mep_d   = results[0] if not isinstance(results[0], Exception) else {}
-    ccl_r   = results[1] if not isinstance(results[1], Exception) else (None, None)
-    oficial = results[2] if not isinstance(results[2], Exception) else None
-    rp_r    = results[3] if not isinstance(results[3], Exception) else (None, None)
+    al30_data = results[0] if not isinstance(results[0], Exception) else {}
+    oficial   = results[1] if not isinstance(results[1], Exception) else None
+    rp_r      = results[2] if not isinstance(results[2], Exception) else (None, None)
 
-    mep     = _safe_float(mep_d, "mark", "close", "ask", "bid")
-    mep_var = _safe_float(mep_d, "pct_change", "var")
-
-    ccl, ccl_var = ccl_r if isinstance(ccl_r, tuple) else (None, None)
+    mep     = al30_data.get("mep")
+    mep_var = al30_data.get("mep_var")
+    ccl     = al30_data.get("ccl")
+    ccl_var = al30_data.get("ccl_var")
     rp_val, rp_pct = rp_r if isinstance(rp_r, tuple) else (None, None)
 
     brecha_mep = round((mep / oficial - 1) * 100, 1) if (mep and oficial and oficial > 0) else None

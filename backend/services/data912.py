@@ -41,6 +41,53 @@ async def _to_df(path: str, symbol_field: str = "symbol") -> pd.DataFrame:
 
 # ── Public API ───────────────────────────────────────────────────────────────
 
+async def get_mep_ccl_al30() -> dict:
+    """
+    Compute MEP and CCL from the AL30/AL30D and AL30/AL30C bond pairs.
+    This is the standard Argentine market convention (most liquid reference).
+
+    MEP = Price(AL30 ARS) / Price(AL30D USD)
+    CCL = Price(AL30 ARS) / Price(AL30C USD)
+    Variation ≈ Δ(ratio) = pct_change(AL30) - pct_change(AL30x)
+    """
+    bonds = await _to_df("/live/arg_bonds")
+    if bonds.empty:
+        return {}
+
+    def _row(sym: str) -> dict:
+        r = bonds[bonds["symbol"] == sym]
+        if r.empty:
+            return {}
+        row = r.iloc[0]
+        try:
+            price = float(str(row.get("c", "")).replace(",", "."))
+        except Exception:
+            price = None
+        try:
+            pct = float(str(row.get("pct_change", "")).replace(",", "."))
+        except Exception:
+            pct = None
+        return {"price": price, "pct": pct}
+
+    al30  = _row("AL30")
+    al30d = _row("AL30D")
+    al30c = _row("AL30C")
+
+    result = {}
+
+    if al30.get("price") and al30d.get("price") and al30d["price"] > 0:
+        result["mep"] = round(al30["price"] / al30d["price"], 2)
+        if al30.get("pct") is not None and al30d.get("pct") is not None:
+            result["mep_var"] = round(al30["pct"] - al30d["pct"], 2)
+
+    if al30.get("price") and al30c.get("price") and al30c["price"] > 0:
+        result["ccl"] = round(al30["price"] / al30c["price"], 2)
+        if al30.get("pct") is not None and al30c.get("pct") is not None:
+            result["ccl_var"] = round(al30["pct"] - al30c["pct"], 2)
+
+    return result
+
+
 async def get_mep() -> dict:
     data = await _fetch("/live/mep")
     if isinstance(data, list) and data:
