@@ -252,20 +252,25 @@ function renderTreemap(domId, data, {
       breadcrumb: { show: false },
       levels: groupKey ? [
         {
-          // Group (sector) label — more prominent
+          // Sector header: dark navy bg matching page theme, white text
           upperLabel: {
             show: true,
-            height: 22,
-            color: '#e8edf5',
-            fontSize: 10,
+            height: 20,
+            color: '#94a3b8',
+            fontSize: 9,
             fontWeight: 700,
             fontFamily: mono,
             textBorderColor: 'transparent',
-            backgroundColor: 'rgba(6,11,23,0.55)',
+            textTransform: 'uppercase',
           },
-          itemStyle: { gapWidth: 2, borderColor: '#0d1424', borderWidth: 1 },
+          itemStyle: {
+            color: '#0d1424',          // dark navy — matches --bg-surface
+            borderColor: '#0d1424',
+            borderWidth: 2,
+            gapWidth: 2,
+          },
         },
-        { itemStyle: { gapWidth: 1 } },
+        { itemStyle: { gapWidth: 1, borderColor: '#0d1424', borderWidth: 1 } },
       ] : [{ itemStyle: { gapWidth: 1 } }],
     }],
   };
