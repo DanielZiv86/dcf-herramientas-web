@@ -40,8 +40,6 @@
         <div id="chart-merval-treemap"></div>
       </div>
 
-      <!-- CEDEARs expander -->
-      <div id="dash-cedears-wrap"></div>
     </div>`;
 
   _startTickerRefresh();
@@ -87,16 +85,6 @@ async function _loadDashboard() {
     });
   }
 
-  // CEDEARs expander (lazy)
-  const wrap = document.getElementById('dash-cedears-wrap');
-  if (wrap) {
-    const exp = ui.expander('CEDEARs — Top por volumen', async (body) => {
-      body.innerHTML = '<p class="text-muted text-sm" style="font-family:var(--font-mono)">Cargando...</p>';
-      const cedears = await api.dashboard.cedears().catch(() => []);
-      _renderCedears(body, cedears);
-    });
-    wrap.appendChild(exp);
-  }
 }
 
 // ── KPI renderers ─────────────────────────────────────────────────────────
