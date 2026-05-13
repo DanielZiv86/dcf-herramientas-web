@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>DCF | Herramientas de Análisis</title>
+  <title>DCF Inversiones | Herramientas de Análisis</title>
   <meta name="description" content="Herramientas de análisis de mercado financiero — DCF Inversiones"/>
   <link rel="icon" href="assets/dcf-logo.png"/>
   <link rel="stylesheet" href="css/design-system.css"/>
@@ -17,8 +17,8 @@
   <!-- ── Top Navigation ───────────────────────────────────────────────────── -->
   <header class="topnav">
     <div class="topnav-logo">
-      <img src="assets/dcf-logo.png" alt="DCF" onerror="this.style.display='none'"/>
-      <span class="topnav-logo-text">DCF</span>
+      <img src="assets/dcf-logo.png" alt="DCF" onerror="this.style.display='none'" style="height:32px"/>
+      <span class="topnav-logo-text">DCF Inversiones</span>
     </div>
 
     <nav class="topnav-links" id="topnav-links">
@@ -26,7 +26,11 @@
     </nav>
 
     <div class="topnav-right">
-      <div class="status-dot" title="Live"></div>
+      <div id="market-status-badge" class="market-badge">
+        <span id="market-dot" class="market-dot closed"></span>
+        <span id="market-status-text" class="market-status-text">—</span>
+      </div>
+      <span id="topbar-timestamp" class="topbar-ts" title="Última actualización"></span>
       <span class="topnav-user" id="topbar-user"></span>
       <button class="topnav-logout" id="logout-btn">Salir →</button>
     </div>
@@ -39,7 +43,6 @@
 
 </div>
 
-<!-- ── Scripts ───────────────────────────────────────────────────────────── -->
 <script src="js/api.js"></script>
 <script src="js/charts.js"></script>
 <script src="js/components.js"></script>

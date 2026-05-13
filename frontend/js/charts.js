@@ -237,14 +237,18 @@ function _groupedTreemap(data, groupKey, labelKey, valueKey, priceKey, extraKey)
   }));
 }
 
+// Bondterminal-inspired color scale: soft gradient rose↔gray↔green
 function _treemapColor(pct) {
-  if (pct > 3)  return '#15803d';
-  if (pct > 1)  return '#16a34a';
-  if (pct > 0.3) return '#1f6b2f';
-  if (pct > -0.3) return '#1f2937';
-  if (pct > -1) return '#7f1d1d';
-  if (pct > -3) return '#dc2626';
-  return '#991b1b';
+  if (pct == null) return '#1e2d40';
+  if (pct >=  3)   return '#166534';   // deep green
+  if (pct >=  1.5) return '#16a34a';   // strong green
+  if (pct >=  0.5) return '#22c55e';   // medium green
+  if (pct >=  0.1) return '#4ade80';   // light green
+  if (pct >  -0.1) return '#334155';   // flat gray
+  if (pct >  -0.5) return '#fda4af';   // very light rose
+  if (pct >  -1.5) return '#fb7185';   // rose
+  if (pct >  -3)   return '#e11d48';   // deep rose
+  return '#be123c';                     // crimson
 }
 
 // ── Line chart ────────────────────────────────────────────────────────────

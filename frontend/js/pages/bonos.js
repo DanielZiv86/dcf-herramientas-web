@@ -3,19 +3,22 @@
 (window.pages = window.pages || {}).bonos = async function(container) {
   container.innerHTML = `
     <div class="page">
-      <div class="page-header">
-        <h1>Bonos Soberanos</h1>
-      </div>
-      <div id="bonos-pills" class="mb-4"></div>
+      <div class="page-header"><h1>Bonos Soberanos</h1></div>
+
+      <!-- Tasas soberanas KPIs -->
+      <div id="bonos-tasas" class="dash-tasas-row mb-3"></div>
+
+      <div id="bonos-pills" class="mb-3"></div>
       <div id="bonos-content"></div>
     </div>`;
+
+  // Load tasas soberanas at the top
+  _loadTasasBadge(container.querySelector('#bonos-tasas'));
 
   const pillEl = document.getElementById('bonos-pills');
   const content = document.getElementById('bonos-content');
 
-  let activeTab = 0;
   const pillsEl = ui.pills(['SOBERANOS', 'SENSIBILIDAD'], 0, (i) => {
-    activeTab = i;
     if (i === 0) renderSoberanos(content);
     else renderSensibilidad(content);
   });
@@ -23,6 +26,21 @@
 
   renderSoberanos(content);
 };
+
+async function _loadTasasBadge(el) {
+  if (!el) return;
+  el.innerHTML = ui.skeletonKpiRow(5).outerHTML;
+  try {
+    const { tasas = [], spread_ley_ar_vs_ny } = await api.dashboard.tasas();
+    const labels = { AL30D: 'AL30D', GD30D: 'GD30D', AL35D: 'AL35D', GD35D: 'GD35D' };
+    el.innerHTML = [
+      ...tasas.map(t => ui.kpiCard({ label: labels[t.ticker] || t.ticker,
+        value: t.tir != null ? t.tir.toFixed(2) + '%' : '—' })),
+      ui.kpiCard({ label: 'Spread Ley AR vs NY',
+        value: spread_ley_ar_vs_ny != null ? `+${Math.abs(spread_ley_ar_vs_ny)} bps` : '—' }),
+    ].join('');
+  } catch { el.innerHTML = ''; }
+}
 
 async function renderSoberanos(container) {
   container.innerHTML = `

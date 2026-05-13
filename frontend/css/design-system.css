@@ -133,10 +133,45 @@ a { color: var(--accent); text-decoration: none; }
 .topnav-logo img  { height: 24px; width: auto; }
 .topnav-logo-text {
   font-family: var(--font-mono);
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   font-weight: 700;
   color: var(--text-primary);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+/* Market status badge */
+.market-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface-2);
+}
+.market-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.market-dot.open   { background: var(--positive); box-shadow: 0 0 5px var(--positive); }
+.market-dot.closed { background: var(--text-muted); }
+.market-status-text {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Last update timestamp */
+.topbar-ts {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 /* Nav links */
