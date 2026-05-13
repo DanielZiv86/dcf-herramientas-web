@@ -247,7 +247,7 @@ function renderTreemap(domId, data, {
         textBorderColor: 'transparent',
         fontFamily: mono,
       },
-      visibleMin: 300,       // hide cells too small to read (area in px²)
+      visibleMin: 800,       // hide cells too small to read (area in px²)
       itemStyle: { gapWidth: 1, borderWidth: 0 },
       breadcrumb: { show: false },
       levels: groupKey ? [
@@ -328,8 +328,10 @@ function _flatTreemap(data, labelKey, valueKey, priceKey, extraKey, sizeKey) {
     let size;
     if (sizeKey) {
       const raw = Math.abs(d[sizeKey] ?? 0) || 1;
-      // Log scale prevents one ticker from dominating the entire treemap
-      size = Math.log10(raw + 1);
+      // Square-root scale: preserves relative importance (AAPL > OTIS)
+      // while preventing mega-caps from taking 80% of the treemap.
+      // log10 was too compressed; linear was too extreme.
+      size = Math.sqrt(raw);
     } else {
       size = Math.abs(pct) || 0.01;
     }

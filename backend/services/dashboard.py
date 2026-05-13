@@ -185,9 +185,15 @@ async def load_sp500_treemap() -> list[dict]:
         if sectors_df.empty:
             return []
 
-        # Todos los tickers — batch auth Yahoo (cookie+crumb) maneja 340 de una.
-        # Si falla el batch, get_quotes() hace fallback a chart individual.
-        sampled = sectors_df.dropna(subset=["ticker"]).copy()
+        # Top 8 por sector (CSV ya ordenado por market cap dentro de cada sector).
+        # 8 × 11 sectores = ~88 tickers — balance entre cobertura y legibilidad.
+        # Celdas más grandes = empresas más importantes por market cap.
+        sampled = (
+            sectors_df.dropna(subset=["ticker"])
+            .groupby("sector", group_keys=False)
+            .apply(lambda g: g.head(8))
+            .reset_index(drop=True)
+        )
         tickers = sampled["ticker"].tolist()
 
         # Parallel individual chart calls (v8 endpoint — no bloqueado)
