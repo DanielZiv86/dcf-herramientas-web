@@ -181,14 +181,19 @@ async def load_sp500_treemap() -> list[dict]:
         sectors_df = await yahoo.get_sp500_sectors()
         if sectors_df.empty:
             return []
-        # Limit to top 60 tickers (2-3 per sector) for speed on free tier
-        tickers = sectors_df["ticker"].dropna().tolist()[:60]
+        # Sample proportionally across sectors (~6 per sector, all 11 sectors)
+        # CSV is sorted by sector — must sample, not just slice[:N]
+        sampled = (
+            sectors_df.dropna(subset=["ticker"])
+            .groupby("sector", group_keys=False)
+            .apply(lambda g: g.head(6))
+            .reset_index(drop=True)
+        )
+        tickers = sampled["ticker"].tolist()
         quotes = await yahoo.get_quotes(tickers)
         rows = []
-        for _, row in sectors_df.iterrows():
+        for _, row in sampled.iterrows():
             tk = row["ticker"]
-            if tk not in tickers:
-                continue
             sector = row.get("sector", "Other")
             q = quotes.get(tk, {})
             pct = q.get("pct_change")
