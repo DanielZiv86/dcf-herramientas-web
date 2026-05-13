@@ -181,7 +181,8 @@ function renderTreemap(domId, data, {
       const sign   = pct !== null && pct >= 0 ? '+' : '';
       const pctStr = pct !== null ? `${sign}${pct.toFixed(2)}%` : '';
       // Show price only if cell is large enough (value proxy: size > 5% of total or price available)
-      if (price != null) return `{tk|${p.name}}\n{px|${_n(price)}}\n{pct|${pctStr}}`;
+      const priceStr = price != null ? `$${_n(price)}` : null;
+      if (priceStr) return `{tk|${p.name}}\n{px|${priceStr}}\n{pct|${pctStr}}`;
       return `{tk|${p.name}}\n{pct|${pctStr}}`;
     },
     rich: {
@@ -324,7 +325,14 @@ function _flatTreemap(data, labelKey, valueKey, priceKey, extraKey, sizeKey) {
     const price = d[priceKey] ?? null;
     const extra = extraKey ? (d[extraKey] ?? null) : null;
     const pct1d = d.pct_1d ?? null;
-    const size  = sizeKey ? (Math.abs(d[sizeKey] ?? 0) || 0.01) : (Math.abs(pct) || 0.01);
+    let size;
+    if (sizeKey) {
+      const raw = Math.abs(d[sizeKey] ?? 0) || 1;
+      // Log scale prevents one ticker from dominating the entire treemap
+      size = Math.log10(raw + 1);
+    } else {
+      size = Math.abs(pct) || 0.01;
+    }
     return {
       name: d[labelKey],
       value: size,
@@ -341,11 +349,14 @@ function _groupedTreemap(data, groupKey, labelKey, valueKey, priceKey, extraKey,
     if (!groups[g]) groups[g] = [];
     groups[g].push(d);
   }
-  return Object.entries(groups).map(([group, items]) => ({
+  return Object.entries(groups).map(([group, items]) => {
+    const ch = _flatTreemap(items, labelKey, valueKey, priceKey, extraKey, sizeKey);
+    return {
     name: group,
-    value: items.reduce((s, d) => s + (sizeKey ? Math.abs(d[sizeKey] ?? 0) : Math.abs(d[valueKey] ?? 0)), 0),
-    children: _flatTreemap(items, labelKey, valueKey, priceKey, extraKey),
-  }));
+    value: ch.reduce((s, c) => s + c.value, 0),
+    children: ch,
+    };
+  });
 }
 
 // Bondterminal-inspired color scale: soft gradient rose↔gray↔green
