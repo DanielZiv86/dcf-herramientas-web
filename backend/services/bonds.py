@@ -41,8 +41,11 @@ BOPREAL_TICKER_MAP: dict[str, tuple[str, str]] = {
     "BPOB8": ("BPB8D",  "BPB8C"),
     "BPOC7": ("BPC7D",  "BPC7C"),
     "BPOD7": ("BPD7D",  "BPD7C"),
-    "BPY26": ("BPY6D",  "BPY6C"),
+    # BPY26 excluded — no longer commercially traded
 }
+
+# Tickers to exclude from all bond tables and charts
+EXCLUDED_TICKERS = {"BPY26", "BPY6D", "BPY6C"}
 
 
 def _data_path() -> Path:
@@ -270,7 +273,7 @@ async def get_bopreal_table(mercado: str = "MEP") -> list[dict]:
         logger.error(str(e))
         return []
 
-    base_tickers = sorted(cf["Ticker"].unique().tolist())
+    base_tickers = sorted(t for t in cf["Ticker"].unique().tolist() if t not in EXCLUDED_TICKERS)
     today = pd.Timestamp.today().normalize()
 
     # Fetch all relevant tickers: base (ARS) + mapped MEP/CCL

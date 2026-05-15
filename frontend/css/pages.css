@@ -18,7 +18,120 @@
   border-radius: 0;
 }
 
-/* ─── Bonos ──────────────────────────────────────────────────────────────── */
+/* ─── Bonos Soberanos — BondTerminal layout ──────────────────────────────── */
+.bt-bonos-layout {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+/* Snapshot panel */
+.bt-snapshot { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.bt-snapshot-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Generic panel */
+.bt-panel { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.bt-panel-header { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+
+/* Section label (BondTerminal style: small, uppercase, monospace, accent underline) */
+.bt-section-label {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--accent);
+  padding-bottom: 2px;
+}
+
+/* Right column layout */
+.bt-right-col { display: flex; flex-direction: column; gap: 12px; }
+.bt-bottom-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* Snapshot table */
+.bt-snapshot-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+.bt-snapshot-table thead th {
+  padding: 7px 12px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-soft);
+  text-align: right;
+  background: var(--bg-surface-2);
+}
+.bt-snapshot-table thead th:first-child { text-align: left; }
+.bt-snapshot-table tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
+.bt-snapshot-table tbody tr:hover { background: var(--bg-hover); }
+.bt-snapshot-table tbody tr:last-child { border-bottom: none; }
+.bt-snapshot-table td { padding: 7px 12px; white-space: nowrap; }
+
+.bt-ticker { font-weight: 700; font-size: 0.82rem; text-align: left; }
+.bt-num    { text-align: right; font-variant-numeric: var(--tabular); }
+.bt-tir-pos { color: var(--positive); font-weight: 600; }
+.bt-tir-neg { color: var(--negative); font-weight: 600; }
+.bt-sky     { color: var(--sky); }
+.bt-violet  { color: var(--violet); }
+
+.bt-group-hdr td {
+  background: var(--bg-surface-2);
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 5px 12px;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border);
+}
+
+.bt-total-row td {
+  background: rgba(255,255,255,0.02);
+  font-weight: 700;
+  border-top: 2px solid var(--border-soft);
+  padding: 8px 12px;
+  text-align: right;
+  font-size: 0.82rem;
+}
+.bt-total-row td:first-child { text-align: left; color: var(--text-secondary); }
+
+/* Riesgo País compact widget */
+.bt-rp-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 10px 14px 6px;
+}
+.bt-rp-value { margin: 2px 0 4px; }
+.bt-rp-change-grid {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 2px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+.bt-rp-period { color: var(--text-muted); }
+
+/* Most viewed (Top TIR) table */
+.bt-most-viewed { width: 100%; border-collapse: collapse; font-family: var(--font-mono); }
+.bt-most-viewed tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
+.bt-most-viewed tr:last-child { border-bottom: none; }
+.bt-most-viewed tr:hover { background: var(--bg-hover); }
+.bt-mv-ticker { padding: 8px 14px; font-weight: 700; font-size: 0.82rem; }
+.bt-mv-sub    { padding: 8px 6px; font-size: 0.72rem; color: var(--text-muted); }
+.bt-mv-tir    { padding: 8px 14px; text-align: right; color: var(--positive); font-weight: 700; font-size: 0.85rem; font-variant-numeric: var(--tabular); }
+
+/* Old layout kept for other views */
 .bonos-layout { display: grid; grid-template-columns: 1.1fr 1.9fr; gap: 16px; }
 
 .bond-group-header {

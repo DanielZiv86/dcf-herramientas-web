@@ -419,7 +419,78 @@ function renderLine(domId, series, { height = 280, xLabels = [], yFormatter = nu
   _autoResize(chart);
 }
 
-// ── Scatter chart ─────────────────────────────────────────────────────────
+// ── Scatter BondTerminal style (labels on points, clean axes) ─────────────
+
+function renderScatterBT(domId, series, {
+  height = 280, xLabel = 'x', yLabel = 'y',
+  yMin = null, yMax = null, yFormatter = null,
+} = {}) {
+  const chart = initChart(domId, height);
+  if (!chart) return;
+
+  const mono = "'JetBrains Mono',monospace";
+
+  chart.setOption({
+    tooltip: {
+      trigger: 'item',
+      formatter: (p) => {
+        if (!p.value) return '';
+        const [x, y, label] = p.value;
+        return `<div style="font-family:${mono};font-size:12px">
+          <b>${label || ''}</b><br/>
+          ${xLabel}: ${Number(x).toFixed(2)}<br/>
+          ${yLabel}: ${Number(y).toFixed(2)}%
+        </div>`;
+      },
+      backgroundColor: '#0d1424',
+      borderColor: 'rgba(255,255,255,0.12)',
+      borderWidth: 1,
+      padding: 10,
+    },
+    legend: { bottom: 4, textStyle: { color: '#94a3b8', fontFamily: mono, fontSize: 10 } },
+    xAxis: {
+      type: 'value', name: xLabel,
+      nameLocation: 'middle', nameGap: 28,
+      nameTextStyle: { color: '#64748b', fontFamily: mono, fontSize: 10 },
+      axisLabel: { color: '#64748b', fontFamily: mono, fontSize: 10 },
+      axisLine:  { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
+      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)', type: 'dashed' } },
+    },
+    yAxis: {
+      type: 'value', name: yLabel,
+      nameLocation: 'middle', nameGap: 40,
+      nameTextStyle: { color: '#64748b', fontFamily: mono, fontSize: 10 },
+      axisLabel: { color: '#64748b', fontFamily: mono, fontSize: 10, formatter: yFormatter },
+      axisLine:  { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
+      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)', type: 'dashed' } },
+      ...(yMin != null ? { min: yMin } : {}),
+      ...(yMax != null ? { max: yMax } : {}),
+    },
+    series: series.map(s => ({
+      name: s.name,
+      type: 'scatter',
+      data: s.data.map(p => [p.x, p.y, p.label]),
+      symbolSize: s.symbolSize || 9,
+      itemStyle: { color: s.color || '#f97316', opacity: 0.9 },
+      label: {
+        show: true,
+        fontFamily: mono,
+        fontSize: 9,
+        fontWeight: 700,
+        color: s.color || '#f97316',
+        formatter: p => p.value[2] || '',
+        position: 'top',
+        distance: 4,
+        textBorderColor: 'rgba(6,11,23,0.8)',
+        textBorderWidth: 2,
+      },
+    })),
+  });
+
+  _autoResize(chart);
+}
+
+// ── Scatter chart (generic) ───────────────────────────────────────────────
 
 function renderScatter(domId, series, { height = 280, xLabel = 'x', yLabel = 'y', xFormatter = null, yFormatter = null } = {}) {
   const chart = initChart(domId, height);
