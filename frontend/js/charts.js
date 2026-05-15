@@ -440,7 +440,56 @@ function _linReg(points) {
   const xs  = points.map(p => p[0]);
   const x0  = Math.min(...xs);
   const x1  = Math.max(...xs);
-  return [[x0, m * x0 + b], [x1, m * x1 + b]];
+  // Return 20 interpolated points so callers get consistent array shape
+  return Array.from({ length: 20 }, (_, i) => {
+    const x = x0 + (x1 - x0) * i / 19;
+    return [x, m * x + b];
+  });
+}
+
+// ── Quadratic regression helper — y = a·x² + b·x + c ─────────────────────
+// Falls back to linear if fewer than 3 points.
+function _quadReg(points) {
+  const n = points.length;
+  if (n < 3) return _linReg(points);
+
+  // Accumulate sums for normal equations
+  let s0 = n, s1 = 0, s2 = 0, s3 = 0, s4 = 0;
+  let t0 = 0, t1 = 0, t2 = 0;
+  for (const [x, y] of points) {
+    s1 += x;    s2 += x*x;    s3 += x*x*x;  s4 += x*x*x*x;
+    t0 += y;    t1 += x*y;    t2 += x*x*y;
+  }
+
+  // Normal equations: M · [c, b, a]ᵀ = T
+  const M = [[s0,s1,s2],[s1,s2,s3],[s2,s3,s4]];
+  const T = [t0, t1, t2];
+
+  // Gaussian elimination with partial pivoting
+  for (let col = 0; col < 3; col++) {
+    let maxRow = col;
+    for (let r = col + 1; r < 3; r++)
+      if (Math.abs(M[r][col]) > Math.abs(M[maxRow][col])) maxRow = r;
+    [M[col], M[maxRow]] = [M[maxRow], M[col]];
+    [T[col], T[maxRow]] = [T[maxRow], T[col]];
+    if (Math.abs(M[col][col]) < 1e-10) return _linReg(points);
+    for (let r = 0; r < 3; r++) {
+      if (r === col) continue;
+      const f = M[r][col] / M[col][col];
+      for (let c = col; c < 3; c++) M[r][c] -= f * M[col][c];
+      T[r] -= f * T[col];
+    }
+  }
+
+  const c = T[0] / M[0][0], b = T[1] / M[1][1], a = T[2] / M[2][2];
+
+  // Generate 30 smooth interpolated points
+  const xs = points.map(p => p[0]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  return Array.from({ length: 31 }, (_, i) => {
+    const x = x0 + (x1 - x0) * i / 30;
+    return [x, a*x*x + b*x + c];
+  });
 }
 
 // ── Scatter BondTerminal style ─────────────────────────────────────────────
@@ -457,24 +506,40 @@ function renderScatterBT(domId, series, {
   chart.setOption({
     tooltip: {
       trigger: 'item',
-      formatter: (p) => {
-        if (!p.value) return '';
-        const [x, y, label] = p.value;
-        return `<div style="font-family:${mono};font-size:12px">
-          <b>${label || ''}</b><br/>
-          ${xLabel}: ${Number(x).toFixed(2)}<br/>
-          ${yLabel}: ${Number(y).toFixed(2)}%
-        </div>`;
-      },
       backgroundColor: '#0d1424',
       borderColor: 'rgba(255,255,255,0.12)',
       borderWidth: 1,
-      padding: 10,
+      padding: [10, 14],
+      formatter: (p) => {
+        if (!p.value || !p.seriesType || p.seriesType === 'line') return '';
+        const [x, y, label, price] = p.value;
+        const row = (lbl, val) =>
+          `<div style="display:flex;justify-content:space-between;gap:20px;margin-top:3px">` +
+          `<span style="color:#7a8fa6">${lbl}</span><span style="font-weight:600">${val}</span></div>`;
+        let html = `<div style="font-family:${mono};font-size:11.5px;min-width:160px">`;
+        html += `<div style="font-size:13px;font-weight:700;margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid rgba(255,255,255,0.08)">${label || ''}</div>`;
+        html += row('Duration (yr)', Number(x).toFixed(2));
+        html += row('YTM (%)', Number(y).toFixed(2) + '%');
+        if (price != null) html += row('Precio', Number(price).toFixed(2));
+        html += '</div>';
+        return html;
+      },
     },
-    legend: { bottom: 4, textStyle: { color: '#94a3b8', fontFamily: mono, fontSize: 10 } },
+    // Legend at top — only scatter series (trend lines excluded)
+    legend: {
+      top: 4,
+      right: 8,
+      data: series.map(s => s.name),
+      textStyle: { color: '#94a3b8', fontFamily: mono, fontSize: 10 },
+      itemHeight: 8,
+      itemWidth: 14,
+      itemGap: 14,
+    },
+    // Explicit grid: top room for legend, bottom room for xAxis name
+    grid: { left: 8, right: 8, top: 36, bottom: 32, containLabel: true },
     xAxis: {
       type: 'value', name: xLabel,
-      nameLocation: 'middle', nameGap: 28,
+      nameLocation: 'middle', nameGap: 30,
       nameTextStyle: { color: '#64748b', fontFamily: mono, fontSize: 10 },
       axisLabel: { color: '#64748b', fontFamily: mono, fontSize: 10 },
       axisLine:  { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
@@ -482,7 +547,7 @@ function renderScatterBT(domId, series, {
     },
     yAxis: {
       type: 'value', name: yLabel,
-      nameLocation: 'middle', nameGap: 40,
+      nameLocation: 'middle', nameGap: 42,
       nameTextStyle: { color: '#64748b', fontFamily: mono, fontSize: 10 },
       axisLabel: { color: '#64748b', fontFamily: mono, fontSize: 10, formatter: yFormatter },
       axisLine:  { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
@@ -491,11 +556,11 @@ function renderScatterBT(domId, series, {
       ...(yMax != null ? { max: yMax } : {}),
     },
     series: [
-      // Scatter series
+      // Scatter series — price passed as 4th array element for tooltip
       ...series.map(s => ({
         name: s.name,
         type: 'scatter',
-        data: s.data.map(p => [p.x, p.y, p.label]),
+        data: s.data.map(p => [p.x, p.y, p.label, p.price ?? null]),
         symbolSize: s.symbolSize || 10,
         itemStyle: {
           color: 'transparent',
@@ -516,16 +581,16 @@ function renderScatterBT(domId, series, {
           textBorderWidth: 2,
         },
       })),
-      // Trend lines (dashed linear regression)
+      // Trend lines — quadratic regression, excluded from legend
       ...(trendLines ? series.map(s => {
         const pts = s.data.map(p => [p.x, p.y]);
-        const reg = _linReg(pts);
+        const curve = _quadReg(pts);
         return {
           name: s.name + ' trend',
           type: 'line',
-          data: reg || [],
+          data: curve || [],
           showSymbol: false,
-          lineStyle: { color: s.color, type: 'dashed', width: 1.5, opacity: 0.6 },
+          lineStyle: { color: s.color, type: 'dashed', width: 1.5, opacity: 0.55 },
           tooltip: { show: false },
           legendHoverLink: false,
           silent: true,

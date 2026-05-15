@@ -106,41 +106,50 @@ async function renderSoberanos(container) {
       </div>
     </div>`;
 
-  let allBondsData = [];
+  let allBondsData = { PESOS: [], MEP: [], CCL: [] };
   let rpHistData   = [];
 
-  // Mercado pills
-  const mp = ui.pills(['PESOS', 'MEP', 'CCL'], 1, async (_, lbl) => {
-    _renderSnapshotTable(allBondsData, lbl);
+  // Mercado pills — callback always uses the already-loaded sub-array
+  const mp = ui.pills(['PESOS', 'MEP', 'CCL'], 1, (_, lbl) => {
+    _renderSnapshotTable(allBondsData[lbl] || [], lbl);
   }, 'pills-sm');
   document.getElementById('bonos-mercado-pills').appendChild(mp);
 
-  // Period pills
-  const rpp = ui.pills(['3M', '6M', '1A', '2A', 'MAX'], 2, (_, lbl) => {
+  // Period pills — solo 1M / 3M / 6M, default 1M
+  const rpp = ui.pills(['1M', '3M', '6M'], 0, (_, lbl) => {
     _renderRPChart(rpHistData, lbl);
   }, 'pills-sm');
   document.getElementById('rp-period-pills').appendChild(rpp);
 
-  // Load parallel
+  // Fetch the three markets + riesgo país in parallel
   const [bondsRes, rpRes] = await Promise.allSettled([
-    api.bonos.todos('MEP'),
+    Promise.allSettled([
+      api.bonos.todos('PESOS'),
+      api.bonos.todos('MEP'),
+      api.bonos.todos('CCL'),
+    ]),
     api.bonos.riesgoPais(),
   ]);
 
   if (bondsRes.status === 'fulfilled') {
-    allBondsData = bondsRes.value;
-    _renderSnapshotTable(allBondsData, 'MEP');
-    _renderCurvaTIR(allBondsData);
-    _renderTopTIR(allBondsData);
+    const [pesosRes, mepRes, cclRes] = bondsRes.value;
+    allBondsData = {
+      PESOS: pesosRes.status === 'fulfilled' ? pesosRes.value : [],
+      MEP:   mepRes.status   === 'fulfilled' ? mepRes.value   : [],
+      CCL:   cclRes.status   === 'fulfilled' ? cclRes.value   : [],
+    };
+    _renderSnapshotTable(allBondsData.MEP, 'MEP');
+    _renderCurvaTIR(allBondsData.MEP);
+    _renderTopTIR(allBondsData.MEP);
   } else {
     document.getElementById('bonos-snapshot-wrap').innerHTML =
-      `<p style="padding:12px;font-family:var(--font-mono);color:var(--negative);font-size:.78rem">${bondsRes.reason?.message || 'Error'}</p>`;
+      `<p style="padding:12px;font-family:var(--font-mono);color:var(--negative);font-size:.78rem">Error cargando datos</p>`;
   }
 
   if (rpRes.status === 'fulfilled') {
     rpHistData = rpRes.value;
     _renderRPHeader(rpHistData);
-    _renderRPChart(rpHistData, '1A');
+    _renderRPChart(rpHistData, '1M');
   }
 }
 
@@ -149,11 +158,17 @@ function _renderSnapshotTable(data, mercado) {
   const wrap = document.getElementById('bonos-snapshot-wrap');
   if (!wrap) return;
 
-  const filt = data.filter(d => d.mercado === mercado && !EXCLUDED_BPY.has(d.ticker));
+  // data is already the market-specific array; filter excluded tickers only
+  const filt = data.filter(d => !EXCLUDED_BPY.has(d.ticker));
 
   const globales  = filt.filter(d => d.base?.startsWith('GD') && d.group !== 'BOPREAL');
   const bonares   = filt.filter(d => ['AL','AE','AN','AO'].some(p => d.base?.startsWith(p)) && d.group !== 'BOPREAL');
   const bopreales = filt.filter(d => d.group === 'BOPREAL');
+
+  if (!globales.length && !bonares.length && !bopreales.length) {
+    wrap.innerHTML = `<p style="padding:16px 12px;font-family:var(--font-mono);color:var(--text-muted);font-size:.75rem">Sin datos disponibles para este mercado</p>`;
+    return;
+  }
 
   const allValid = [...globales, ...bonares].filter(d => d.tir != null);
   const avgTIR   = allValid.length ? (allValid.reduce((s, d) => s + d.tir, 0) / allValid.length) : null;
@@ -208,8 +223,8 @@ function _renderCurvaTIR(data) {
   const maxY = allTIRs.length ? Math.ceil(Math.max(...allTIRs) + 1.5) : 13;
 
   dcfCharts.renderScatterBT('chart-curva-tir', [
-    { name: 'NY Law',  color: '#4DA3FF', data: globales.map(d => ({ x: d.duration, y: d.tir, label: d.base })), showLabels: true },
-    { name: 'Arg Law', color: '#00D084', data: bonares.map(d => ({ x: d.duration, y: d.tir, label: d.base })), showLabels: true },
+    { name: 'NY Law',  color: '#4DA3FF', data: globales.map(d => ({ x: d.duration, y: d.tir, label: d.base, price: d.precio })), showLabels: true },
+    { name: 'Arg Law', color: '#00D084', data: bonares.map(d => ({ x: d.duration, y: d.tir, label: d.base, price: d.precio })), showLabels: true },
   ], { height: 360, xLabel: 'Modified Duration (yr)', yLabel: 'YTM (%)', yMin: minY, yMax: maxY, yFormatter: v => `${v?.toFixed(1)}%`, trendLines: true });
 }
 
@@ -234,10 +249,10 @@ function _renderRPHeader(hist) {
     <div class="bt2-rp-row"><span class="bt2-rp-period">1M</span><span style="color:${rpCol(m1)};font-weight:600">${rpSign(m1)}</span></div>`;
 }
 
-const _rpDays = { '3M': 90, '6M': 180, '1A': 365, '2A': 730, 'MAX': 9999 };
+const _rpDays = { '1M': 30, '3M': 90, '6M': 180 };
 function _renderRPChart(hist, period) {
   if (!hist?.length) return;
-  const data = hist.slice(-(_rpDays[period] || 365));
+  const data = hist.slice(-(_rpDays[period] || 30));
   dcfCharts.renderLine('chart-riesgo-pais', [
     { name: 'EMBI', data: data.map(d => d.valor), color: '#4DA3FF', area: true }
   ], { height: 64, xLabels: data.map(d => d.fecha), yFormatter: v => `${Math.round(v)}`, mini: true });
@@ -249,7 +264,7 @@ function _renderTopTIR(data) {
   if (!el) return;
   const sorted = data
     .filter(d => d.tir != null && d.group !== 'BOPREAL' && !EXCLUDED_BPY.has(d.ticker))
-    .sort((a, b) => b.tir - a.tir).slice(0, 7);
+    .sort((a, b) => b.tir - a.tir).slice(0, 5);
 
   el.innerHTML = sorted.map(d => `
     <div class="bt2-mv-row">
