@@ -2,6 +2,9 @@
 
 const EXCLUDED_BPY = new Set(['BPY26', 'BPY6D', 'BPY6C']);
 
+// Module-level state for BOPREAL toggle (persists across tab switches)
+let _showBopreal = false;
+
 (window.pages = window.pages || {}).bonos = async function(container) {
   container.innerHTML = `
     <div class="bt2-page">
@@ -33,7 +36,8 @@ const EXCLUDED_BPY = new Set(['BPY26', 'BPY6D', 'BPY6C']);
 async function _loadTasasBadge(el) {
   if (!el) return;
   try {
-    const { tasas = [], spread_ley_ar_vs_ny } = await api.dashboard.tasas();
+    const { tasas = [], spread_ley_ar_vs_ny, spread_pair } = await api.dashboard.tasas();
+    const spreadSign = spread_ley_ar_vs_ny != null ? (spread_ley_ar_vs_ny >= 0 ? '+' : '') : '';
     el.innerHTML = [
       ...tasas.map(t => `
         <div class="bt2-kpi-card">
@@ -42,7 +46,8 @@ async function _loadTasasBadge(el) {
         </div>`),
       `<div class="bt2-kpi-card bt2-kpi-spread">
         <div class="bt2-kpi-label">SPREAD LEY AR VS NY</div>
-        <div class="bt2-kpi-value bt2-accent">${spread_ley_ar_vs_ny != null ? '+' + Math.abs(spread_ley_ar_vs_ny) + ' bps' : '—'}</div>
+        <div class="bt2-kpi-value bt2-accent">${spread_ley_ar_vs_ny != null ? spreadSign + Math.round(spread_ley_ar_vs_ny) + ' bps' : '—'}</div>
+        <div class="bt2-kpi-sub">${spread_pair || 'AL30D — GD30D'}</div>
       </div>`,
     ].join('');
   } catch { el.innerHTML = ''; }
@@ -73,7 +78,10 @@ async function renderSoberanos(container) {
         <div class="bt2-panel bt2-curve-panel">
           <div class="bt2-panel-hdr">
             <span class="bt2-panel-title">SOVEREIGN CURVE</span>
-            <span class="bt2-expand-btn" title="Expandir">⤢</span>
+            <div style="display:flex;align-items:center;gap:8px">
+              <button class="bt2-bop-btn" id="bop-toggle">BOPREAL</button>
+              <span class="bt2-expand-btn" title="Expandir">⤢</span>
+            </div>
           </div>
           <div id="chart-curva-tir"></div>
         </div>
@@ -104,12 +112,26 @@ async function renderSoberanos(container) {
 
         </div>
       </div>
+    </div>
+
+    <!-- ── Bond Market Heatmap ── -->
+    <div class="bt2-panel bt2-heatmap-panel">
+      <div class="bt2-panel-hdr">
+        <span class="bt2-panel-title">BOND MARKET HEATMAP</span>
+        <div id="heatmap-mercado-pills"></div>
+      </div>
+      <div id="chart-heatmap"></div>
+      <div class="bt2-heatmap-legend">
+        <span class="bt2-legend-item"><span class="bt2-legend-dot bt2-leg-neg"></span>Negative</span>
+        <span class="bt2-legend-item"><span class="bt2-legend-dot bt2-leg-flat"></span>Flat / unavailable</span>
+        <span class="bt2-legend-item"><span class="bt2-legend-dot bt2-leg-pos"></span>Positive</span>
+      </div>
     </div>`;
 
   let allBondsData = { PESOS: [], MEP: [], CCL: [] };
   let rpHistData   = [];
 
-  // Mercado pills — callback always uses the already-loaded sub-array
+  // Snapshot mercado pills
   const mp = ui.pills(['PESOS', 'MEP', 'CCL'], 1, (_, lbl) => {
     _renderSnapshotTable(allBondsData[lbl] || [], lbl);
   }, 'pills-sm');
@@ -120,6 +142,23 @@ async function renderSoberanos(container) {
     _renderRPChart(rpHistData, lbl);
   }, 'pills-sm');
   document.getElementById('rp-period-pills').appendChild(rpp);
+
+  // Heatmap mercado pills (independent from snapshot)
+  const hmp = ui.pills(['PESOS', 'MEP', 'CCL'], 1, (_, lbl) => {
+    _renderHeatmap(allBondsData[lbl] || [], lbl);
+  }, 'pills-sm');
+  document.getElementById('heatmap-mercado-pills').appendChild(hmp);
+
+  // BOPREAL toggle for sovereign curve
+  const bopBtn = document.getElementById('bop-toggle');
+  if (bopBtn) {
+    bopBtn.classList.toggle('active', _showBopreal);
+    bopBtn.addEventListener('click', () => {
+      _showBopreal = !_showBopreal;
+      bopBtn.classList.toggle('active', _showBopreal);
+      _renderCurvaTIR(allBondsData.MEP, _showBopreal);
+    });
+  }
 
   // Fetch the three markets + riesgo país in parallel
   const [bondsRes, rpRes] = await Promise.allSettled([
@@ -139,8 +178,9 @@ async function renderSoberanos(container) {
       CCL:   cclRes.status   === 'fulfilled' ? cclRes.value   : [],
     };
     _renderSnapshotTable(allBondsData.MEP, 'MEP');
-    _renderCurvaTIR(allBondsData.MEP);
+    _renderCurvaTIR(allBondsData.MEP, _showBopreal);
     _renderTopTIR(allBondsData.MEP);
+    _renderHeatmap(allBondsData.MEP, 'MEP');
   } else {
     document.getElementById('bonos-snapshot-wrap').innerHTML =
       `<p style="padding:12px;font-family:var(--font-mono);color:var(--negative);font-size:.78rem">Error cargando datos</p>`;
@@ -211,21 +251,29 @@ function _renderSnapshotTable(data, mercado) {
 }
 
 // ── Sovereign Curve with trend lines ─────────────────────────────────────
-function _renderCurvaTIR(data) {
-  const valid = data.filter(d =>
-    d.tir != null && d.duration != null && d.group !== 'BOPREAL' && !EXCLUDED_BPY.has(d.ticker)
+function _renderCurvaTIR(data, showBopreal = false) {
+  const validBase = data.filter(d =>
+    d.tir != null && d.duration != null && !EXCLUDED_BPY.has(d.ticker)
   );
-  const globales = valid.filter(d => d.base?.startsWith('GD'));
-  const bonares  = valid.filter(d => ['AL','AE','AN','AO'].some(p => d.base?.startsWith(p)));
+  const validHD   = validBase.filter(d => d.group !== 'BOPREAL');
+  const globales  = validHD.filter(d => d.base?.startsWith('GD'));
+  const bonares   = validHD.filter(d => ['AL','AE','AN','AO'].some(p => d.base?.startsWith(p)));
+  const bopreales = showBopreal ? validBase.filter(d => d.group === 'BOPREAL') : [];
 
-  const allTIRs = valid.map(d => d.tir);
+  const allForScale = showBopreal ? validBase : validHD;
+  const allTIRs = allForScale.map(d => d.tir);
   const minY = allTIRs.length ? Math.max(0, Math.floor(Math.min(...allTIRs) - 0.5)) : 4;
   const maxY = allTIRs.length ? Math.ceil(Math.max(...allTIRs) + 1.5) : 13;
 
-  dcfCharts.renderScatterBT('chart-curva-tir', [
+  const series = [
     { name: 'NY Law',  color: '#4DA3FF', data: globales.map(d => ({ x: d.duration, y: d.tir, label: d.base, price: d.precio })), showLabels: true },
     { name: 'Arg Law', color: '#00D084', data: bonares.map(d => ({ x: d.duration, y: d.tir, label: d.base, price: d.precio })), showLabels: true },
-  ], { height: 360, xLabel: 'Modified Duration (yr)', yLabel: 'YTM (%)', yMin: minY, yMax: maxY, yFormatter: v => `${v?.toFixed(1)}%`, trendLines: true });
+  ];
+  if (bopreales.length) {
+    series.push({ name: 'BOPREAL', color: '#F59E0B', data: bopreales.map(d => ({ x: d.duration, y: d.tir, label: d.base, price: d.precio })), showLabels: true });
+  }
+
+  dcfCharts.renderScatterBT('chart-curva-tir', series, { height: 360, xLabel: 'Modified Duration (yr)', yLabel: 'YTM (%)', yMin: minY, yMax: maxY, yFormatter: v => `${v?.toFixed(1)}%`, trendLines: true });
 }
 
 // ── Riesgo País header ────────────────────────────────────────────────────
@@ -302,6 +350,84 @@ async function renderSensibilidad(container) {
     ui.pills(['GLOBALES', 'BONARES', 'BOPREAL'], 0, (_, t) => loadSensi(t))
   );
   await loadSensi('GLOBALES');
+}
+
+// ── Bond Market Heatmap ───────────────────────────────────────────────────
+function _renderHeatmap(data, mercado = 'MEP') {
+  const el = document.getElementById('chart-heatmap');
+  if (!el) return;
+
+  const filt = data.filter(d => !EXCLUDED_BPY.has(d.ticker) && d.precio != null);
+
+  if (!filt.length) {
+    dcfCharts.disposeChart('chart-heatmap');
+    el.style.height = '';
+    el.innerHTML = `<p style="padding:16px 12px;font-family:var(--font-mono);color:var(--text-muted);font-size:.75rem">Sin datos disponibles para este mercado</p>`;
+    return;
+  }
+
+  // Map groups: HD bonds split into SOVEREIGN NY / SOVEREIGN AR
+  const mapped = filt.map(d => ({
+    ...d,
+    pct_change: d.pct_change ?? 0,
+    group: d.group === 'BOPREAL' ? 'BOPREAL'
+         : d.base?.startsWith('GD') ? 'SOVEREIGN NY'
+         : 'SOVEREIGN AR',
+  }));
+
+  dcfCharts.renderTreemap('chart-heatmap', mapped, {
+    height: 340,
+    labelKey:   'ticker',
+    valueKey:   'pct_change',
+    priceKey:   'precio',
+    extraKey:   'tir',
+    extraLabel: 'YTM',
+    groupKey:   'group',
+    bondStyle:  true,
+    periodLabel:'1D',
+  });
+
+  // Override tooltip with full heatmap info (duration, volume, mercado)
+  const mono = "'JetBrains Mono',monospace";
+  const chart = echarts.getInstanceByDom(el);
+  if (chart) {
+    chart.setOption({
+      tooltip: {
+        backgroundColor: '#0d1424',
+        borderColor: 'rgba(255,255,255,0.12)',
+        borderWidth: 1,
+        padding: [10, 14],
+        formatter: (info) => {
+          if (!info.data || info.data.children) return `<b style="font-family:${mono}">${info.name}</b>`;
+          const d = info.data;
+          const sign = v => (v != null && v >= 0) ? '+' : '';
+          const col  = v => (v != null && v >= 0) ? '#22c55e' : (v != null ? '#ef4444' : '#64748b');
+          const row = (lbl, val, color) =>
+            `<div style="display:flex;justify-content:space-between;gap:20px;margin-top:2px">` +
+            `<span style="color:#7a8fa6">${lbl}</span>` +
+            `<span style="font-weight:600;${color ? 'color:' + color : ''}">${val}</span></div>`;
+          let html = `<div style="font-family:${mono};font-size:11.5px;min-width:170px">`;
+          html += `<div style="font-size:13px;font-weight:700;margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid rgba(255,255,255,0.08)">${info.name}</div>`;
+          if (d.price != null)    html += row('Precio', _n(d.price), '');
+          if (d.pct != null)      html += row('Var día', `${sign(d.pct)}${d.pct.toFixed(2)}%`, col(d.pct));
+          if (d.extra != null)    html += row('YTM', `${d.extra.toFixed(2)}%`, '#22d3ee');
+          if (d.duration != null) html += row('Duration (yr)', d.duration.toFixed(1), '');
+          if (d.volume > 1)       html += row('Volumen', _nCompact(d.volume), '');
+          html += row('Mercado', mercado, '#f97316');
+          html += '</div>';
+          return html;
+        },
+      },
+    });
+  }
+}
+
+function _nCompact(v) {
+  if (v == null) return '—';
+  if (v >= 1e9)  return (v / 1e9).toFixed(1) + 'B';
+  if (v >= 1e6)  return (v / 1e6).toFixed(1) + 'M';
+  if (v >= 1e3)  return (v / 1e3).toFixed(0) + 'K';
+  return String(Math.round(v));
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

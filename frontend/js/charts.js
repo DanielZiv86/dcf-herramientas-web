@@ -297,12 +297,13 @@ function _flatBondTreemap(data, labelKey, valueKey, priceKey, extraKey) {
     const price = d[priceKey] ?? null;
     const extra = extraKey ? (d[extraKey] ?? null) : null;
     const pct1d = d.pct_1d ?? null;
-    // All cells have similar size (by outstanding/volume if available, else equal)
     const vol = d.volume || d.ars_volume || 1;
     return {
       name: d[labelKey],
-      value: vol > 1 ? Math.log(vol + 1) : 1,  // log scale for volume
+      value: vol > 1 ? Math.log(vol + 1) : 1,
       pct, price, extra, pct1d,
+      duration: d.duration ?? null,
+      volume: vol,
       itemStyle: { color: _bondCellColor(pct) },
     };
   });

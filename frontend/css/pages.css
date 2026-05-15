@@ -312,6 +312,58 @@
 }
 .bt2-rp-period { color: var(--bt2-sub); }
 
+/* Panel header — fixed height keeps bottom cards aligned */
+.bt2-panel-hdr { min-height: 36px; }
+
+/* KPI sub-label (spread pair) */
+.bt2-kpi-sub {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  color: var(--bt2-sub);
+  margin-top: 2px;
+  letter-spacing: 0.04em;
+}
+
+/* BOPREAL toggle button in curve panel header */
+.bt2-bop-btn {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--bt2-sub);
+  background: transparent;
+  border: 1px solid var(--bt2-border);
+  border-radius: 3px;
+  padding: 2px 7px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.bt2-bop-btn:hover  { color: var(--bt2-accent); border-color: var(--bt2-accent); }
+.bt2-bop-btn.active { color: var(--bt2-accent); border-color: var(--bt2-accent); background: rgba(245,158,11,0.08); }
+
+/* Bond Market Heatmap */
+.bt2-heatmap-panel { margin-top: 12px; }
+.bt2-heatmap-legend {
+  display: flex;
+  gap: 20px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--bt2-border);
+}
+.bt2-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  color: var(--bt2-sub);
+  letter-spacing: 0.04em;
+}
+.bt2-legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.bt2-leg-neg  { background: #dc2626; }
+.bt2-leg-flat { background: #334155; }
+.bt2-leg-pos  { background: #16a34a; }
+
 /* Most viewed */
 .bt2-mv-row {
   display: flex;

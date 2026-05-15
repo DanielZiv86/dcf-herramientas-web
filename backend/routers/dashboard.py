@@ -30,8 +30,8 @@ async def get_ticker_band(dcf_session: Optional[str] = Cookie(default=None)):
 @router.get("/tasas-soberanas")
 async def get_tasas_soberanas(dcf_session: Optional[str] = Cookie(default=None)):
     require_auth(dcf_session)
-    tasas, spread = await svc.load_tasas_soberanas()
-    return {"tasas": tasas, "spread_ley_ar_vs_ny": spread}
+    tasas, spread, spread_pair = await svc.load_tasas_soberanas()
+    return {"tasas": tasas, "spread_ley_ar_vs_ny": spread, "spread_pair": spread_pair}
 
 
 @router.get("/sp500-treemap")

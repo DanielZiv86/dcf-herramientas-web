@@ -159,14 +159,12 @@ async def load_tasas_soberanas() -> tuple[list[dict], Optional[float]]:
             tir = row.get("tir") if row else None
             result.append({"ticker": tk, "tir": tir, "price": row.get("precio") if row else None})
 
-        # Spread Ley AR vs NY
+        # Spread Ley AR vs NY: AL30D TIR − GD30D TIR (in bps, 1% = 100 bps)
         gd30 = next((x["tir"] for x in result if x["ticker"] == "GD30D"), None)
         al30 = next((x["tir"] for x in result if x["ticker"] == "AL30D"), None)
-        spread = round(al30 - gd30, 0) if (al30 is not None and gd30 is not None) else None
-        # Convert spread to bps
-        spread_bps = round(spread * 100) if spread is not None else None
+        spread_bps = round((al30 - gd30) * 100) if (al30 is not None and gd30 is not None) else None
 
-        return result, spread_bps
+        return result, spread_bps, "AL30D — GD30D"
     except Exception as e:
         logger.warning("load_tasas_soberanas failed: %s", e)
         return [], None

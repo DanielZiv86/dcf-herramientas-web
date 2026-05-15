@@ -180,17 +180,49 @@ async def _fetch_iol_prices(tickers: Iterable[str]) -> dict[str, float]:
         return {}
 
 
-# ── Price fetching (data912 primary, IOL fallback) ────────────────────────────
+# ── Price + market data fetching (data912 primary, IOL price fallback) ───────
 
-async def _fetch_prices(tickers: list[str]) -> dict[str, float]:
+async def _fetch_all_bond_data(tickers: list[str]) -> dict[str, dict]:
+    """Returns {ticker: {price, pct_change, volume}} for each requested ticker."""
+    result: dict[str, dict] = {}
+    tk_set = {t.upper() for t in tickers}
     try:
-        px = await data912.prices_arg_bonds()
-        prices = {tk: float(px[tk]) for tk in tickers if tk in px.index and np.isfinite(px[tk])}
-        if len(prices) >= max(1, len(tickers) * 0.5):
-            return prices
-    except Exception:
-        pass
-    return await _fetch_iol_prices(tickers)
+        df = await data912.get_arg_bonds()
+        if not df.empty:
+            for _, row in df.iterrows():
+                sym = str(row.get("symbol", "")).strip().upper()
+                if sym not in tk_set:
+                    continue
+                try:
+                    price = float(str(row.get("c", "")).replace(",", "."))
+                except Exception:
+                    price = np.nan
+                if not np.isfinite(price):
+                    continue
+                try:
+                    pct = float(str(row.get("pct_change", "")).replace(",", "."))
+                except Exception:
+                    pct = None
+                try:
+                    vol = float(str(row.get("v", 0) or 0))
+                except Exception:
+                    vol = 0.0
+                result[sym] = {"price": price, "pct_change": pct, "volume": vol}
+    except Exception as e:
+        logger.warning("_fetch_all_bond_data data912 failed: %s", e)
+
+    # IOL fallback for tickers still missing a price
+    missing = [t for t in tickers if t.upper() not in result]
+    if missing:
+        iol_prices = await _fetch_iol_prices(missing)
+        for tk, px in iol_prices.items():
+            result[tk.upper()] = {"price": px, "pct_change": None, "volume": 0.0}
+
+    return result
+
+
+def _prices_from_data(mdata: dict[str, dict]) -> dict[str, float]:
+    return {tk: d["price"] for tk, d in mdata.items() if np.isfinite(d.get("price", np.nan))}
 
 
 def _implicit_fx(prices: dict, ref: str, kind: str) -> float:
@@ -249,7 +281,7 @@ def _compute_metrics(cf: pd.DataFrame, base_tickers: list[str], prices: dict[str
 # ── Public functions ─────────────────────────────────────────────────────────
 
 async def get_hd_table(mercado: str = "MEP") -> list[dict]:
-    """Returns HD bonds table for a given market."""
+    """Returns HD bonds table for a given market, with pct_change and volume."""
     try:
         cf = load_cashflows(BD_BONOS_HD)
     except FileNotFoundError as e:
@@ -258,11 +290,18 @@ async def get_hd_table(mercado: str = "MEP") -> list[dict]:
 
     base_tickers = sorted(cf["Ticker"].unique().tolist())
     all_tickers = [f"{b}{s}" for b in base_tickers for _, s in MERCADOS]
-    prices = await _fetch_prices(all_tickers)
+    mdata = await _fetch_all_bond_data(all_tickers)
+    prices = _prices_from_data(mdata)
 
     df = _compute_metrics(cf, base_tickers, prices)
-    filtered = df[df["mercado"] == mercado.upper()]
-    return filtered.to_dict(orient="records")
+    rows = df[df["mercado"] == mercado.upper()].to_dict(orient="records")
+
+    for row in rows:
+        md = mdata.get(row["ticker"], {})
+        row["pct_change"] = md.get("pct_change")
+        row["volume"] = md.get("volume", 0.0)
+
+    return rows
 
 
 async def get_bopreal_table(mercado: str = "MEP") -> list[dict]:
@@ -276,15 +315,15 @@ async def get_bopreal_table(mercado: str = "MEP") -> list[dict]:
     base_tickers = sorted(t for t in cf["Ticker"].unique().tolist() if t not in EXCLUDED_TICKERS)
     today = pd.Timestamp.today().normalize()
 
-    # Fetch all relevant tickers: base (ARS) + mapped MEP/CCL
+    # Include base (ARS), mapped MEP/CCL tickers, and AL30 for FX calculation
     all_tickers = list({t for base in base_tickers
                         for t in [base] + list(BOPREAL_TICKER_MAP.get(base, (f"{base}D", f"{base}C")))})
-    prices = await _fetch_prices(all_tickers)
+    all_tickers += ["AL30", "AL30D", "AL30C"]
 
-    # MEP from AL30 for ARS→USD conversion
-    mep = prices.get("AL30D") or prices.get("AL30")
-    al30_ars = prices.get("AL30")
-    fx_mep = (al30_ars / prices["AL30D"]) if ("AL30D" in prices and "AL30" in prices and prices["AL30D"] > 0) else np.nan
+    mdata = await _fetch_all_bond_data(all_tickers)
+    prices = _prices_from_data(mdata)
+
+    fx_mep = (prices["AL30"] / prices["AL30D"]) if ("AL30D" in prices and "AL30" in prices and prices.get("AL30D", 0) > 0) else np.nan
 
     rows = []
     for base in base_tickers:
@@ -294,11 +333,17 @@ async def get_bopreal_table(mercado: str = "MEP") -> list[dict]:
         price_ccl = prices.get(ccl_tk, np.nan)
 
         if mercado.upper() == "MEP":
-            px_usd = price_mep
+            current_tk  = mep_tk
+            px_usd      = price_mep
+            precio_show = price_mep           # USD price
         elif mercado.upper() == "CCL":
-            px_usd = price_ccl
-        else:
-            px_usd = (price_ars / fx_mep) if np.isfinite(price_ars) and np.isfinite(fx_mep) else np.nan
+            current_tk  = ccl_tk
+            px_usd      = price_ccl
+            precio_show = price_ccl           # USD price
+        else:  # PESOS — show ARS price, use USD-equivalent for TIR calculation
+            current_tk  = base
+            px_usd      = (price_ars / fx_mep) if np.isfinite(price_ars) and np.isfinite(fx_mep) else np.nan
+            precio_show = price_ars           # ARS price (not converted)
 
         future = cf[(cf["Ticker"] == base) & (cf["Fecha"] > today)].sort_values("Fecha").dropna(subset=["Fecha", "Cashflow"])
 
@@ -310,14 +355,17 @@ async def get_bopreal_table(mercado: str = "MEP") -> list[dict]:
             if not np.isnan(tir):
                 dur = macaulay_duration(future["Cashflow"].astype(float).to_numpy(), dates_full, tir)
 
+        md = mdata.get(current_tk, {})
         rows.append({
             "base": base,
             "ticker": mep_tk if mercado.upper() == "MEP" else (ccl_tk if mercado.upper() == "CCL" else base),
             "mercado": mercado.upper(),
-            "precio": round(float(px_usd), 4) if np.isfinite(px_usd) else None,
+            "precio": round(float(precio_show), 4) if np.isfinite(precio_show) else None,
             "tir": round(float(tir) * 100, 2) if not np.isnan(tir) else None,
             "duration": round(float(dur), 2) if not np.isnan(dur) else None,
             "group": "BOPREAL",
+            "pct_change": md.get("pct_change"),
+            "volume": md.get("volume", 0.0),
         })
 
     return rows
