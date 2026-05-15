@@ -270,7 +270,7 @@ function _renderCurvaTIR(data, showBopreal = false) {
     { name: 'Arg Law', color: '#00D084', data: bonares.map(d => ({ x: d.duration, y: d.tir, label: d.base, price: d.precio })), showLabels: true },
   ];
   if (bopreales.length) {
-    series.push({ name: 'BOPREAL', color: '#F59E0B', data: bopreales.map(d => ({ x: d.duration, y: d.tir, label: d.base, price: d.precio })), showLabels: true });
+    series.push({ name: 'BOPREAL', color: '#F59E0B', data: bopreales.map(d => ({ x: d.duration, y: d.tir, label: d.base, price: d.precio })), showLabels: true, trendType: 'linear' });
   }
 
   dcfCharts.renderScatterBT('chart-curva-tir', series, { height: 360, xLabel: 'Modified Duration (yr)', yLabel: 'YTM (%)', yMin: minY, yMax: maxY, yFormatter: v => `${v?.toFixed(1)}%`, trendLines: true });

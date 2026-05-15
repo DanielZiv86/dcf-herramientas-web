@@ -312,8 +312,11 @@
 }
 .bt2-rp-period { color: var(--bt2-sub); }
 
-/* Panel header — fixed height keeps bottom cards aligned */
+/* Panel headers — consistent min-height everywhere */
 .bt2-panel-hdr { min-height: 36px; }
+
+/* Bottom row: force identical header height on both cards for visual symmetry */
+.bt2-bottom-row .bt2-panel-hdr { height: 38px; }
 
 /* KPI sub-label (spread pair) */
 .bt2-kpi-sub {

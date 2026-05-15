@@ -582,10 +582,10 @@ function renderScatterBT(domId, series, {
           textBorderWidth: 2,
         },
       })),
-      // Trend lines — quadratic regression, excluded from legend
+      // Trend lines — quadratic by default, linear when trendType:'linear'
       ...(trendLines ? series.map(s => {
         const pts = s.data.map(p => [p.x, p.y]);
-        const curve = _quadReg(pts);
+        const curve = s.trendType === 'linear' ? _linReg(pts) : _quadReg(pts);
         return {
           name: s.name + ' trend',
           type: 'line',
