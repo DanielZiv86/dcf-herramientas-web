@@ -245,12 +245,19 @@ function _renderSnapshotTable(data, mercado) {
   const wrap = document.getElementById('bonos-snapshot-wrap');
   if (!wrap) return;
 
-  // data is already the market-specific array; filter excluded tickers only
   const filt = data.filter(d => !EXCLUDED_BPY.has(d.ticker));
 
-  const globales  = filt.filter(d => d.base?.startsWith('GD') && d.group !== 'BOPREAL');
-  const bonares   = filt.filter(d => ['AL','AE','AN','AO'].some(p => d.base?.startsWith(p)) && d.group !== 'BOPREAL');
-  const bopreales = filt.filter(d => d.group === 'BOPREAL');
+  // Sort each sub-group by Modified Duration ascending; nulls go to the end
+  const _byDur = arr => [...arr].sort((a, b) => {
+    if (a.duration == null && b.duration == null) return 0;
+    if (a.duration == null) return 1;
+    if (b.duration == null) return -1;
+    return a.duration - b.duration;
+  });
+
+  const globales  = _byDur(filt.filter(d => d.base?.startsWith('GD') && d.group !== 'BOPREAL'));
+  const bonares   = _byDur(filt.filter(d => ['AL','AE','AN','AO'].some(p => d.base?.startsWith(p)) && d.group !== 'BOPREAL'));
+  const bopreales = _byDur(filt.filter(d => d.group === 'BOPREAL'));
 
   if (!globales.length && !bonares.length && !bopreales.length) {
     wrap.innerHTML = `<p style="padding:16px 12px;font-family:var(--font-mono);color:var(--text-muted);font-size:.75rem">Sin datos disponibles para este mercado</p>`;
@@ -260,18 +267,26 @@ function _renderSnapshotTable(data, mercado) {
   const allValid = [...globales, ...bonares].filter(d => d.tir != null);
   const avgTIR   = allValid.length ? (allValid.reduce((s, d) => s + d.tir, 0) / allValid.length) : null;
 
+  function varCell(pct) {
+    if (pct == null) return `<td class="bt2-td-num bt2-sub">—</td>`;
+    const sign = pct > 0 ? '+' : '';
+    const cls  = pct > 0.01 ? 'bt2-pos' : pct < -0.01 ? 'bt2-neg' : 'bt2-sub';
+    return `<td class="bt2-td-num ${cls}">${sign}${pct.toFixed(2)}%</td>`;
+  }
+
   function rows(items, cls) {
     return items.map(d => `
       <tr class="bt2-row">
         <td class="bt2-td-ticker ${cls}">${d.ticker}</td>
         <td class="bt2-td-num">${d.precio ? _n(d.precio) : '—'}</td>
+        ${varCell(d.pct_change)}
         <td class="bt2-td-num ${d.tir != null ? (d.tir >= 0 ? 'bt2-pos' : 'bt2-neg') : ''}">${d.tir != null ? d.tir.toFixed(2) + '%' : '—'}</td>
         <td class="bt2-td-num bt2-sub">${_n(d.duration, 1)}</td>
       </tr>`).join('');
   }
 
   function groupHdr(label) {
-    return `<tr class="bt2-group-hdr"><td colspan="4">${label}</td></tr>`;
+    return `<tr class="bt2-group-hdr"><td colspan="5">${label}</td></tr>`;
   }
 
   wrap.innerHTML = `
@@ -280,6 +295,7 @@ function _renderSnapshotTable(data, mercado) {
         <tr>
           <th style="text-align:left">TICKER</th>
           <th>PRECIO</th>
+          <th>VAR %</th>
           <th>TIR</th>
           <th>DUR.</th>
         </tr>
@@ -287,9 +303,10 @@ function _renderSnapshotTable(data, mercado) {
       <tbody>
         ${globales.length  ? groupHdr('SOBERANOS LEY NY')  + rows(globales,  'bt2-ny')  : ''}
         ${bonares.length   ? groupHdr('SOBERANOS LEY AR')  + rows(bonares,   'bt2-ar')  : ''}
-        ${bopreales.length ? groupHdr('BOPREAL (USD)')     + rows(bopreales, 'bt2-bp')  : ''}
+        ${bopreales.length ? groupHdr('BOPREAL')           + rows(bopreales, 'bt2-bp')  : ''}
         <tr class="bt2-total-row">
-          <td colspan="2">Total</td>
+          <td colspan="2">TIR prom.</td>
+          <td></td>
           <td class="bt2-pos">${avgTIR != null ? avgTIR.toFixed(2) + '%' : '—'}</td>
           <td></td>
         </tr>
@@ -320,7 +337,7 @@ function _renderCurvaTIR(data, showBopreal = false) {
     series.push({ name: 'BOPREAL', color: '#F59E0B', data: bopreales.map(d => ({ x: d.duration, y: d.tir, label: d.base, price: d.precio })), showLabels: true, trendType: 'linear' });
   }
 
-  dcfCharts.renderScatterBT('chart-curva-tir', series, { height: 360, xLabel: 'Modified Duration (yr)', yLabel: 'YTM (%)', yMin: minY, yMax: maxY, yFormatter: v => `${v?.toFixed(1)}%`, trendLines: true });
+  dcfCharts.renderScatterBT('chart-curva-tir', series, { height: 400, xLabel: 'Modified Duration (yr)', yLabel: 'YTM (%)', yMin: minY, yMax: maxY, yFormatter: v => `${v?.toFixed(1)}%`, trendLines: true });
 }
 
 // ── Riesgo País header ────────────────────────────────────────────────────

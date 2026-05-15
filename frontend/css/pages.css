@@ -105,10 +105,10 @@
 /* Main grid — both columns stretch to the same height */
 .bt2-layout {
   display: grid;
-  grid-template-columns: 360px 1fr;
+  grid-template-columns: 400px 1fr;
   gap: 12px;
   align-items: stretch;
-  min-height: 640px;
+  min-height: 700px;
 }
 
 /* Snapshot column — fills full height */
@@ -215,11 +215,11 @@
   width: 100%;
   border-collapse: collapse;
   font-family: var(--font-mono);
-  font-size: 0.76rem;
+  font-size: 0.82rem;
 }
 .bt2-table thead th {
-  padding: 6px 10px;
-  font-size: 0.6rem;
+  padding: 5px 8px;
+  font-size: 0.61rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.07em;
@@ -238,8 +238,8 @@
 .bt2-row:hover { background: rgba(77,163,255,0.05); }
 .bt2-row:last-child { border-bottom: none; }
 
-.bt2-td-ticker { padding: 5px 10px; font-weight: 700; text-align: left; font-size: 0.8rem; }
-.bt2-td-num    { padding: 5px 10px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bt2-td-ticker { padding: 5px 8px; font-weight: 700; text-align: left; font-size: 0.86rem; }
+.bt2-td-num    { padding: 5px 8px; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .bt2-sub       { color: var(--bt2-sub); }
 
 .bt2-pos { color: var(--bt2-pos); }
@@ -264,9 +264,9 @@
   border-top: 1px solid var(--bt2-accent) !important;
 }
 .bt2-total-row td {
-  padding: 6px 10px;
+  padding: 5px 8px;
   font-weight: 700;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   text-align: right;
   color: var(--bt2-sub);
 }
