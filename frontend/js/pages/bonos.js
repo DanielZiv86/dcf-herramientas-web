@@ -2,8 +2,11 @@
 
 const EXCLUDED_BPY = new Set(['BPY26', 'BPY6D', 'BPY6C']);
 
-// Module-level state for BOPREAL toggle (persists across tab switches)
-let _showBopreal = false;
+// Module-level state — persists across SOBERANOS/SENSIBILIDAD tab switches
+let _showBopreal    = false;
+let _currentMercado = 'MEP';
+let _allBondsData   = { PESOS: [], MEP: [], CCL: [] };
+let _tasasEl        = null;
 
 (window.pages = window.pages || {}).bonos = async function(container) {
   container.innerHTML = `
@@ -22,7 +25,8 @@ let _showBopreal = false;
       <div id="bonos-content"></div>
     </div>`;
 
-  _loadTasasBadge(document.getElementById('bonos-tasas'));
+  _tasasEl = document.getElementById('bonos-tasas');
+  _loadTasasBadge(_tasasEl);
 
   const pillsEl = ui.pills(['SOBERANOS', 'SENSIBILIDAD'], 0, (i) => {
     if (i === 0) renderSoberanos(document.getElementById('bonos-content'));
@@ -105,7 +109,7 @@ async function renderSoberanos(container) {
 
           <div class="bt2-panel">
             <div class="bt2-panel-hdr">
-              <span class="bt2-panel-title">MAYOR TIR — MEP</span>
+              <span class="bt2-panel-title" id="top-tir-title">MAYOR TIR — MEP</span>
             </div>
             <div id="bonos-top-tir"></div>
           </div>
@@ -118,7 +122,7 @@ async function renderSoberanos(container) {
     <div class="bt2-panel bt2-heatmap-panel">
       <div class="bt2-panel-hdr">
         <span class="bt2-panel-title">BOND MARKET HEATMAP</span>
-        <div id="heatmap-mercado-pills"></div>
+        <span class="bt2-kpi-sub" id="heatmap-mkt-label" style="color:var(--bt2-accent);font-weight:700;letter-spacing:.06em">MEP</span>
       </div>
       <div id="chart-heatmap"></div>
       <div class="bt2-heatmap-legend">
@@ -128,39 +132,33 @@ async function renderSoberanos(container) {
       </div>
     </div>`;
 
-  let allBondsData = { PESOS: [], MEP: [], CCL: [] };
-  let rpHistData   = [];
+  let rpHistData = [];
 
-  // Snapshot mercado pills
-  const mp = ui.pills(['PESOS', 'MEP', 'CCL'], 1, (_, lbl) => {
-    _renderSnapshotTable(allBondsData[lbl] || [], lbl);
+  // ── Un único selector de mercado controla todos los componentes ──────────
+  const _mkts = ['PESOS', 'MEP', 'CCL'];
+  const mp = ui.pills(_mkts, Math.max(0, _mkts.indexOf(_currentMercado)), (_, lbl) => {
+    _setMercado(lbl);
   }, 'pills-sm');
   document.getElementById('bonos-mercado-pills').appendChild(mp);
 
-  // Period pills — solo 1M / 3M / 6M, default 1M
+  // Período de RP (independiente del mercado de bonos)
   const rpp = ui.pills(['1M', '3M', '6M'], 0, (_, lbl) => {
     _renderRPChart(rpHistData, lbl);
   }, 'pills-sm');
   document.getElementById('rp-period-pills').appendChild(rpp);
 
-  // Heatmap mercado pills (independent from snapshot)
-  const hmp = ui.pills(['PESOS', 'MEP', 'CCL'], 1, (_, lbl) => {
-    _renderHeatmap(allBondsData[lbl] || [], lbl);
-  }, 'pills-sm');
-  document.getElementById('heatmap-mercado-pills').appendChild(hmp);
-
-  // BOPREAL toggle for sovereign curve
+  // Toggle BOPREAL — siempre usa el mercado activo
   const bopBtn = document.getElementById('bop-toggle');
   if (bopBtn) {
     bopBtn.classList.toggle('active', _showBopreal);
     bopBtn.addEventListener('click', () => {
       _showBopreal = !_showBopreal;
       bopBtn.classList.toggle('active', _showBopreal);
-      _renderCurvaTIR(allBondsData.MEP, _showBopreal);
+      _renderCurvaTIR(_allBondsData[_currentMercado] || [], _showBopreal);
     });
   }
 
-  // Fetch the three markets + riesgo país in parallel
+  // Carga los tres mercados + riesgo país en paralelo
   const [bondsRes, rpRes] = await Promise.allSettled([
     Promise.allSettled([
       api.bonos.todos('PESOS'),
@@ -172,15 +170,12 @@ async function renderSoberanos(container) {
 
   if (bondsRes.status === 'fulfilled') {
     const [pesosRes, mepRes, cclRes] = bondsRes.value;
-    allBondsData = {
+    _allBondsData = {
       PESOS: pesosRes.status === 'fulfilled' ? pesosRes.value : [],
       MEP:   mepRes.status   === 'fulfilled' ? mepRes.value   : [],
       CCL:   cclRes.status   === 'fulfilled' ? cclRes.value   : [],
     };
-    _renderSnapshotTable(allBondsData.MEP, 'MEP');
-    _renderCurvaTIR(allBondsData.MEP, _showBopreal);
-    _renderTopTIR(allBondsData.MEP);
-    _renderHeatmap(allBondsData.MEP, 'MEP');
+    _setMercado(_currentMercado);  // renderiza todos los componentes para el mercado activo
   } else {
     document.getElementById('bonos-snapshot-wrap').innerHTML =
       `<p style="padding:12px;font-family:var(--font-mono);color:var(--negative);font-size:.78rem">Error cargando datos</p>`;
@@ -191,6 +186,58 @@ async function renderSoberanos(container) {
     _renderRPHeader(rpHistData);
     _renderRPChart(rpHistData, '1M');
   }
+}
+
+// ── Controlador global de mercado ─────────────────────────────────────────
+function _setMercado(lbl) {
+  _currentMercado = lbl;
+  const data = _allBondsData[lbl] || [];
+
+  _renderSnapshotTable(data, lbl);
+  _renderCurvaTIR(data, _showBopreal);
+  _renderTopTIR(data);
+  _renderHeatmap(data, lbl);
+
+  // Actualiza el título dinámico de "Mayor TIR"
+  const titleEl = document.getElementById('top-tir-title');
+  if (titleEl) titleEl.textContent = `MAYOR TIR — ${lbl}`;
+
+  // Actualiza el badge de mercado en el heatmap
+  const mktLabel = document.getElementById('heatmap-mkt-label');
+  if (mktLabel) mktLabel.textContent = lbl;
+
+  // Actualiza KPIs desde datos ya cargados (tickers correctos por mercado)
+  if (_tasasEl && data.length) _renderTasasBadgeFromData(_tasasEl, data, lbl);
+}
+
+// ── KPI tasas calculados desde datos de bonos ya cargados ─────────────────
+// Reemplaza el valor del API (siempre MEP) con el mercado activo.
+function _renderTasasBadgeFromData(el, data, mercado) {
+  if (!el) return;
+  const suf     = mercado === 'MEP' ? 'D' : mercado === 'CCL' ? 'C' : '';
+  const tickers = ['AL30', 'GD30', 'AL35', 'GD35'].map(b => b + suf);
+
+  const tirMap = {};
+  for (const d of data) tirMap[d.ticker] = d.tir;
+
+  const alTir      = tirMap[tickers[0]];
+  const gdTir      = tirMap[tickers[1]];
+  const spreadBps  = (alTir != null && gdTir != null) ? Math.round((alTir - gdTir) * 100) : null;
+  const spreadPair = `${tickers[0]} — ${tickers[1]}`;
+  const sign       = (spreadBps != null && spreadBps >= 0) ? '+' : '';
+
+  el.innerHTML = [
+    ...tickers.map(tk => `
+      <div class="bt2-kpi-card">
+        <div class="bt2-kpi-label">${tk}</div>
+        <div class="bt2-kpi-value">${tirMap[tk] != null ? tirMap[tk].toFixed(2) + '%' : '—'}</div>
+      </div>`),
+    `<div class="bt2-kpi-card bt2-kpi-spread">
+      <div class="bt2-kpi-label">SPREAD LEY AR VS NY</div>
+      <div class="bt2-kpi-value bt2-accent">${spreadBps != null ? sign + Math.round(spreadBps) + ' bps' : '—'}</div>
+      <div class="bt2-kpi-sub">${spreadPair}</div>
+    </div>`,
+  ].join('');
 }
 
 // ── Snapshot table (BondTerminal style) ──────────────────────────────────
