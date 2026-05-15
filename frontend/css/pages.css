@@ -102,28 +102,67 @@
 .bt2-tabs .pills { background: var(--bt2-card); border-color: var(--bt2-border); }
 .bt2-tabs .pill-btn { font-size: 0.7rem; letter-spacing: 0.06em; }
 
-/* Main grid layout */
+/* Main grid — both columns stretch to the same height */
 .bt2-layout {
   display: grid;
   grid-template-columns: 360px 1fr;
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
+  min-height: 640px;
 }
 
-/* Snapshot column */
-.bt2-snapshot-col { min-width: 0; }
-
-/* Right column */
-.bt2-right-col {
+/* Snapshot column — fills full height */
+.bt2-snapshot-col {
   display: flex;
   flex-direction: column;
-  gap: 10px;
   min-width: 0;
 }
+.bt2-snapshot-col .bt2-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.bt2-snapshot-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 300px;
+  max-height: none !important;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bt2-border) transparent;
+}
+
+/* Right column — curve takes remaining, bottom row is fixed */
+.bt2-right-col {
+  display: grid;
+  grid-template-rows: 1fr 200px;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Curve panel fills its grid cell */
+.bt2-curve-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.bt2-curve-panel #chart-curva-tir {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Bottom row: RP + Top TIR side by side */
 .bt2-bottom-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+  min-height: 0;
+}
+.bt2-bottom-row .bt2-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 /* Panel base */
@@ -237,37 +276,41 @@
 /* Curve panel */
 .bt2-curve-panel { }
 
-/* Riesgo País */
+/* Riesgo País — top: value + changes, bottom: mini chart */
 .bt2-rp-body {
   display: flex;
-  align-items: stretch;
-  gap: 0;
-  padding: 10px 12px 4px;
+  flex-direction: column;
+  padding: 10px 12px 0;
+  gap: 6px;
 }
-.bt2-rp-left { flex-shrink: 0; min-width: 110px; }
-.bt2-rp-big  { margin-bottom: 8px; line-height: 1; }
+.bt2-rp-top {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.bt2-rp-big  { line-height: 1; flex-shrink: 0; }
 .bt2-rp-num  {
   font-family: var(--font-mono);
-  font-size: 2.2rem;
+  font-size: 2rem;
   font-weight: 800;
   color: var(--bt2-text);
 }
 .bt2-rp-bps {
   font-family: var(--font-mono);
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: var(--bt2-sub);
-  margin-left: 4px;
+  margin-left: 3px;
 }
-.bt2-rp-grid { display: flex; flex-direction: column; gap: 3px; }
+.bt2-rp-grid { display: flex; flex-direction: row; gap: 10px; align-items: center; }
 .bt2-rp-row  {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 5px;
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
 }
-.bt2-rp-period { color: var(--bt2-sub); width: 18px; }
-.bt2-rp-chart-wrap { flex: 1; min-width: 0; }
+.bt2-rp-period { color: var(--bt2-sub); }
 
 /* Most viewed */
 .bt2-mv-row {

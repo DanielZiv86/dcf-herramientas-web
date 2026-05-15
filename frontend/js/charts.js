@@ -382,7 +382,7 @@ function _treemapColor(pct) {
 
 // ── Line chart ────────────────────────────────────────────────────────────
 
-function renderLine(domId, series, { height = 280, xLabels = [], yFormatter = null, smooth = true, areaOpacity = 0.08 } = {}) {
+function renderLine(domId, series, { height = 280, xLabels = [], yFormatter = null, smooth = true, areaOpacity = 0.08, mini = false } = {}) {
   const chart = initChart(domId, height);
   if (!chart) return;
 
@@ -391,30 +391,38 @@ function renderLine(domId, series, { height = 280, xLabels = [], yFormatter = nu
     type: 'line',
     data: s.data,
     smooth,
-    lineStyle: { width: 2, color: s.color || COLORS.accent },
+    lineStyle: { width: mini ? 1.5 : 2, color: s.color || COLORS.accent },
     itemStyle: { color: s.color || COLORS.accent },
     symbol: 'none',
     areaStyle: s.area ? {
       color: {
         type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
         colorStops: [
-          { offset: 0, color: (s.color || COLORS.accent).replace(')', `, ${areaOpacity})`).replace('rgb', 'rgba') },
+          { offset: 0, color: (s.color || COLORS.accent).replace(')', `, ${mini ? 0.15 : areaOpacity})`).replace('rgb', 'rgba') },
           { offset: 1, color: 'rgba(0,0,0,0)' },
         ],
       },
     } : undefined,
   }));
 
-  chart.setOption({
-    tooltip: {
-      trigger: 'axis',
-      valueFormatter: yFormatter,
-    },
-    legend: series.length > 1 ? { bottom: 0 } : { show: false },
-    xAxis: { type: 'category', data: xLabels, boundaryGap: false },
-    yAxis: { type: 'value', axisLabel: { formatter: yFormatter } },
-    series: echartseries,
-  });
+  if (mini) {
+    chart.setOption({
+      grid: { left: 0, right: 0, top: 2, bottom: 0 },
+      tooltip: { trigger: 'axis', valueFormatter: yFormatter, axisPointer: { lineStyle: { color: 'rgba(148,163,184,0.3)' } } },
+      legend: { show: false },
+      xAxis: { type: 'category', data: xLabels, boundaryGap: false, show: false },
+      yAxis: { type: 'value', show: false, scale: true },
+      series: echartseries,
+    });
+  } else {
+    chart.setOption({
+      tooltip: { trigger: 'axis', valueFormatter: yFormatter },
+      legend: series.length > 1 ? { bottom: 0 } : { show: false },
+      xAxis: { type: 'category', data: xLabels, boundaryGap: false },
+      yAxis: { type: 'value', axisLabel: { formatter: yFormatter } },
+      series: echartseries,
+    });
+  }
 
   _autoResize(chart);
 }

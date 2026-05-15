@@ -87,13 +87,11 @@ async function renderSoberanos(container) {
               <div id="rp-period-pills"></div>
             </div>
             <div class="bt2-rp-body">
-              <div class="bt2-rp-left">
+              <div class="bt2-rp-top">
                 <div class="bt2-rp-big" id="rp-value">—</div>
                 <div class="bt2-rp-grid" id="rp-changes"></div>
               </div>
-              <div class="bt2-rp-chart-wrap">
-                <div id="chart-riesgo-pais"></div>
-              </div>
+              <div id="chart-riesgo-pais"></div>
             </div>
           </div>
 
@@ -212,7 +210,7 @@ function _renderCurvaTIR(data) {
   dcfCharts.renderScatterBT('chart-curva-tir', [
     { name: 'NY Law',  color: '#4DA3FF', data: globales.map(d => ({ x: d.duration, y: d.tir, label: d.base })), showLabels: true },
     { name: 'Arg Law', color: '#00D084', data: bonares.map(d => ({ x: d.duration, y: d.tir, label: d.base })), showLabels: true },
-  ], { height: 260, xLabel: 'Modified Duration (yr)', yLabel: 'YTM (%)', yMin: minY, yMax: maxY, yFormatter: v => `${v?.toFixed(1)}%`, trendLines: true });
+  ], { height: 360, xLabel: 'Modified Duration (yr)', yLabel: 'YTM (%)', yMin: minY, yMax: maxY, yFormatter: v => `${v?.toFixed(1)}%`, trendLines: true });
 }
 
 // ── Riesgo País header ────────────────────────────────────────────────────
@@ -242,7 +240,7 @@ function _renderRPChart(hist, period) {
   const data = hist.slice(-(_rpDays[period] || 365));
   dcfCharts.renderLine('chart-riesgo-pais', [
     { name: 'EMBI', data: data.map(d => d.valor), color: '#4DA3FF', area: true }
-  ], { height: 80, xLabels: data.map(d => d.fecha), yFormatter: v => `${Math.round(v)}` });
+  ], { height: 64, xLabels: data.map(d => d.fecha), yFormatter: v => `${Math.round(v)}`, mini: true });
 }
 
 // ── Top TIR (Most Viewed style) ───────────────────────────────────────────
