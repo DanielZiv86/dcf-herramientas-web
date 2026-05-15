@@ -419,11 +419,27 @@ function renderLine(domId, series, { height = 280, xLabels = [], yFormatter = nu
   _autoResize(chart);
 }
 
-// ── Scatter BondTerminal style (labels on points, clean axes) ─────────────
+// ── Linear regression helper ───────────────────────────────────────────────
+function _linReg(points) {
+  const n = points.length;
+  if (n < 2) return null;
+  const sx  = points.reduce((s, p) => s + p[0], 0);
+  const sy  = points.reduce((s, p) => s + p[1], 0);
+  const sxy = points.reduce((s, p) => s + p[0] * p[1], 0);
+  const sx2 = points.reduce((s, p) => s + p[0] * p[0], 0);
+  const m   = (n * sxy - sx * sy) / (n * sx2 - sx * sx);
+  const b   = (sy - m * sx) / n;
+  const xs  = points.map(p => p[0]);
+  const x0  = Math.min(...xs);
+  const x1  = Math.max(...xs);
+  return [[x0, m * x0 + b], [x1, m * x1 + b]];
+}
 
+// ── Scatter BondTerminal style ─────────────────────────────────────────────
 function renderScatterBT(domId, series, {
   height = 280, xLabel = 'x', yLabel = 'y',
   yMin = null, yMax = null, yFormatter = null,
+  trendLines = false,
 } = {}) {
   const chart = initChart(domId, height);
   if (!chart) return;
@@ -466,25 +482,48 @@ function renderScatterBT(domId, series, {
       ...(yMin != null ? { min: yMin } : {}),
       ...(yMax != null ? { max: yMax } : {}),
     },
-    series: series.map(s => ({
-      name: s.name,
-      type: 'scatter',
-      data: s.data.map(p => [p.x, p.y, p.label]),
-      symbolSize: s.symbolSize || 9,
-      itemStyle: { color: s.color || '#f97316', opacity: 0.9 },
-      label: {
-        show: true,
-        fontFamily: mono,
-        fontSize: 9,
-        fontWeight: 700,
-        color: s.color || '#f97316',
-        formatter: p => p.value[2] || '',
-        position: 'top',
-        distance: 4,
-        textBorderColor: 'rgba(6,11,23,0.8)',
-        textBorderWidth: 2,
-      },
-    })),
+    series: [
+      // Scatter series
+      ...series.map(s => ({
+        name: s.name,
+        type: 'scatter',
+        data: s.data.map(p => [p.x, p.y, p.label]),
+        symbolSize: s.symbolSize || 10,
+        itemStyle: {
+          color: 'transparent',
+          borderColor: s.color || '#f97316',
+          borderWidth: 2,
+          opacity: 1,
+        },
+        label: {
+          show: true,
+          fontFamily: mono,
+          fontSize: 9,
+          fontWeight: 700,
+          color: s.color || '#f97316',
+          formatter: p => p.value[2] || '',
+          position: 'top',
+          distance: 5,
+          textBorderColor: 'rgba(8,17,28,0.9)',
+          textBorderWidth: 2,
+        },
+      })),
+      // Trend lines (dashed linear regression)
+      ...(trendLines ? series.map(s => {
+        const pts = s.data.map(p => [p.x, p.y]);
+        const reg = _linReg(pts);
+        return {
+          name: s.name + ' trend',
+          type: 'line',
+          data: reg || [],
+          showSymbol: false,
+          lineStyle: { color: s.color, type: 'dashed', width: 1.5, opacity: 0.6 },
+          tooltip: { show: false },
+          legendHoverLink: false,
+          silent: true,
+        };
+      }) : []),
+    ],
   });
 
   _autoResize(chart);
