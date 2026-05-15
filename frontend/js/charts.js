@@ -594,6 +594,6 @@ function _autoResize(chart) {
 
 window.dcfCharts = {
   initChart, disposeChart,
-  renderTreemap, renderLine, renderScatter, renderBar, renderCandlestick,
+  renderTreemap, renderLine, renderScatter, renderScatterBT, renderBar, renderCandlestick,
   pctToColor, COLORS, TREEMAP_COLORSCALE,
 };
