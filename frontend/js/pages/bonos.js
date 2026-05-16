@@ -4,7 +4,7 @@ const EXCLUDED_BPY = new Set(['BPY26', 'BPY6D', 'BPY6C']);
 
 // ── Costos de entrada ────────────────────────────────────────────────────────
 const BUY_COMMISSION_RATE  = 0.005;   // 0,5%
-const BUY_TAX_RATE         = 0.001;   // 0,1%
+const BUY_TAX_RATE         = 0.0001;  // 0,01%
 const BUY_TOTAL_COST_RATE  = BUY_COMMISSION_RATE + BUY_TAX_RATE;
 
 // Module-level state — persists across SOBERANOS/SENSIBILIDAD tab switches
@@ -725,7 +725,7 @@ function _buildCalcModal(bond, base, mercado) {
               </div>
               <div class="bcc-field">
                 <label>Impuestos (%)</label>
-                <input type="number" id="calc-input-tax" value="0.10" step="0.01" min="0" max="10" oninput="_calcUpdate()">
+                <input type="number" id="calc-input-tax" value="0.01" step="0.01" min="0" max="10" oninput="_calcUpdate()">
               </div>
             </div>
             <p class="bcc-note">El monto ingresado es el desembolso total incluyendo costos. El VN se calcula sobre el monto neto = bruto ÷ (1 + costos).</p>
