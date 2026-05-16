@@ -455,6 +455,69 @@
 }
 .bt2-sensi-cell:hover { filter: brightness(1.3); }
 
+/* ── Letras y Boncaps ─────────────────────────────────────────────────────── */
+
+/* MEP badge en el header */
+.ltr-mep-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bt2-card);
+  border: 1px solid var(--bt2-border);
+  border-radius: 4px;
+  padding: 6px 16px;
+  flex-shrink: 0;
+}
+.ltr-mep-label {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--bt2-sub);
+}
+.ltr-mep-val {
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--bt2-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Main grid: tabla izquierda + chart derecha */
+.ltr-grid {
+  display: grid;
+  grid-template-columns: minmax(380px, 0.4fr) minmax(520px, 0.6fr);
+  gap: 12px;
+  align-items: stretch;
+  min-height: 520px;
+}
+
+/* Chart panel ocupa toda la altura disponible */
+.ltr-chart-panel {
+  display: flex;
+  flex-direction: column;
+}
+.ltr-chart-panel #ltr-chart {
+  flex: 1;
+  min-height: 430px;
+}
+
+/* Ticker en naranja para letras */
+.ltr-tk {
+  color: var(--bt2-accent);
+  font-weight: 700;
+}
+
+/* Columna destacada según tab activa */
+.ltr-th-hl {
+  color: var(--bt2-accent) !important;
+}
+.ltr-hl {
+  color: var(--bt2-accent);
+  font-weight: 700;
+}
+
 /* Most viewed */
 .bt2-mv-row {
   display: flex;
