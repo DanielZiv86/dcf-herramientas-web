@@ -114,9 +114,66 @@ async def get_carry_table() -> tuple[list[dict], float]:
     carry["tem"] = ((1 + carry["tea"]) ** (30 / 365) - 1).replace([np.inf, -np.inf], np.nan)
     carry["MEP_BE"] = (mep * ratio).round(0)
 
-    techo, piso = _bandas_simple(exp_dates)
-    carry["banda_sup"] = techo.values
-    carry["banda_inf"] = piso.values
+    # ── Bandas cambiarias: lógica completa (IPC T-2 + REM + TAIL fallback) ──
+    # Para fechas >= 2026-01-01 usa Inflacion mensual.xlsx + BD REM.xlsx.
+    # Para fechas anteriores, o si los archivos no están disponibles, usa
+    # la fórmula simple de fallback (1400×1.01^m / 1000×0.99^m desde ANCHOR).
+    techo_simple, piso_simple = _bandas_simple(exp_dates)
+    carry["banda_sup"] = techo_simple.values
+    carry["banda_inf"] = piso_simple.values
+
+    try:
+        from services import bandas_cambiarias as bc
+
+        IPC_PATH = _data_path() / "Inflacion mensual.xlsx"
+        REM_PATH = _data_path() / "BD REM.xlsx"
+
+        if IPC_PATH.exists() and REM_PATH.exists():
+            df_ipc = bc.load_ipc_from_excel(IPC_PATH, sheet_name=0, mes_col="mes", ipc_col="ipc")
+            df_rem = bc.get_rem_inflacion_mensual_promedio(REM_PATH, sheet_name=0, mes_col="mes", rem_col="rem")
+
+            df_mats = pd.DataFrame({"vencimiento": carry["expiration"]})
+            end_month = bc.end_month_from_maturities(df_mats, maturity_col="vencimiento")
+            internal_start = "2026-01"
+
+            df_pi = bc.build_pi_series_for_bands(
+                start_month=internal_start,
+                end_month=end_month,
+                df_ipc=df_ipc,
+                df_rem=df_rem,
+                tail_floor_pct=1.0,
+                tail_decay_step_pp=0.10,
+                tail_decay_every_n_months=3,
+            )
+            df_bandas_mensuales = bc.compute_bands_monthly(
+                df_pi=df_pi,
+                piso_inicial=916.28,
+                techo_inicial=1526.60,
+                metodo_piso="multiply",
+            )
+
+            fechas_vto = exp_dates.dt.date
+            mask_new = fechas_vto >= date(2026, 1, 1)
+
+            if mask_new.any():
+                dates_new = exp_dates[mask_new].dt.date.tolist()
+                unique_dates = sorted(set(dates_new))
+                df_bandas_fechas = bc.bandas_for_dates(
+                    fechas=unique_dates,
+                    df_monthly=df_bandas_mensuales,
+                    bandas_res="pro_rata_hab",
+                )
+                techo_map = dict(zip(df_bandas_fechas["fecha"], df_bandas_fechas["techo"]))
+                piso_map  = dict(zip(df_bandas_fechas["fecha"], df_bandas_fechas["piso"]))
+                dates_series = pd.Series(dates_new, index=carry.index[mask_new])
+                carry.loc[mask_new, "banda_sup"] = (
+                    dates_series.map(techo_map).astype(float).round().astype("Int64")
+                )
+                carry.loc[mask_new, "banda_inf"] = (
+                    dates_series.map(piso_map).astype(float).round().astype("Int64")
+                )
+    except Exception as e:
+        logger.warning("Bandas cambiarias: fallback a fórmula simple. Error: %s", e)
 
     carry = carry.sort_values("days")
     carry = carry.dropna(subset=["bond_price"])
