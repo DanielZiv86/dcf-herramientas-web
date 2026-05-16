@@ -8,7 +8,7 @@ let _ltView = 'TNA';
   container.innerHTML = `
     <div class="bt2-page">
 
-      <!-- Header -->
+      <!-- Header compacto: título + MEP badge -->
       <div class="bt2-header">
         <h1 class="bt2-title">Letras y Boncaps</h1>
         <div class="ltr-mep-badge">
@@ -17,13 +17,10 @@ let _ltView = 'TNA';
         </div>
       </div>
 
-      <!-- Tabs globales -->
-      <div class="bt2-tabs" id="ltr-pills"></div>
-
       <!-- Main two-column grid -->
       <div class="ltr-grid">
 
-        <!-- LEFT: tabla -->
+        <!-- LEFT: tabla sin selector propio -->
         <div class="bt2-panel">
           <div class="bt2-panel-hdr">
             <span class="bt2-panel-title">LETRAS Y BONCAPS ACTIVOS</span>
@@ -33,10 +30,11 @@ let _ltView = 'TNA';
           </div>
         </div>
 
-        <!-- RIGHT: chart -->
+        <!-- RIGHT: chart — selector dentro del header de esta card -->
         <div class="bt2-panel ltr-chart-panel">
           <div class="bt2-panel-hdr">
             <span class="bt2-panel-title" id="ltr-chart-title">TNA POR PLAZO</span>
+            <div id="ltr-pills"></div>
           </div>
           <div id="ltr-chart"></div>
         </div>
@@ -44,13 +42,13 @@ let _ltView = 'TNA';
       </div>
     </div>`;
 
-  // Pills: controlan tabla Y gráfico simultáneamente
+  // Pills dentro del header del chart — controlan también el destaque de la tabla
   const views = ['TNA', 'TEM', 'Carry-Trade'];
   document.getElementById('ltr-pills').appendChild(
     ui.pills(views, views.indexOf(_ltView), (_, lbl) => {
       _ltView = lbl;
       _ltrUpdateAll();
-    })
+    }, 'pills-sm')
   );
 
   try {
@@ -66,7 +64,6 @@ let _ltView = 'TNA';
 
 // ── Orquestador central ────────────────────────────────────────────────────
 function _ltrUpdateAll() {
-  // MEP badge
   const mepEl = document.getElementById('ltr-mep-val');
   if (mepEl) {
     mepEl.textContent = _ltMep != null
@@ -74,7 +71,6 @@ function _ltrUpdateAll() {
       : 'N/D';
   }
 
-  // Chart title
   const titles = { 'TNA': 'TNA POR PLAZO', 'TEM': 'TEM POR PLAZO', 'Carry-Trade': 'CARRY-TRADE — BANDAS MEP' };
   const tEl = document.getElementById('ltr-chart-title');
   if (tEl) tEl.textContent = titles[_ltView];
@@ -95,8 +91,8 @@ function _ltrRenderTable() {
 
   const sorted = [..._ltData].sort((a, b) => (a.dias ?? 9999) - (b.dias ?? 9999));
 
-  function tdNum(val)          { return `<td class="bt2-td-num">${val ?? '—'}</td>`; }
-  function tdPct(val, hl=false) {
+  function tdNum(val)            { return `<td class="bt2-td-num">${val ?? '—'}</td>`; }
+  function tdPct(val, hl = false) {
     if (val == null) return `<td class="bt2-td-num bt2-sub">—</td>`;
     const str = val.toFixed(2).replace('.', ',') + '%';
     return `<td class="bt2-td-num${hl ? ' ltr-hl' : ''}">${str}</td>`;
@@ -186,28 +182,38 @@ function _ltrRenderChart() {
   }
 }
 
+// ── Chart TNA / TEM con autofit y regresión log ────────────────────────────
 function _ltrCurvaChart() {
   const el = document.getElementById('ltr-chart');
   if (!el) return;
 
-  const yKey    = _ltView === 'TNA' ? 'tna' : 'tem';
-  const yLabel  = _ltView === 'TNA' ? 'TNA (%)' : 'TEM (%)';
-  const valid   = _ltData.filter(d => d[yKey] != null).sort((a, b) => a.dias - b.dias);
-  const mono    = "'JetBrains Mono',monospace";
+  const yKey   = _ltView === 'TNA' ? 'tna' : 'tem';
+  const yLabel = _ltView === 'TNA' ? 'TNA (%)' : 'TEM (%)';
+  const valid  = _ltData.filter(d => d[yKey] != null && d.dias > 0).sort((a, b) => a.dias - b.dias);
+  const mono   = "'JetBrains Mono',monospace";
 
   if (!valid.length) {
-    dcfCharts.disposeChart('ltr-chart');
-    el.style.height = '';
-    el.innerHTML = `<p style="padding:20px;font-family:${mono};color:var(--text-muted);font-size:.78rem;text-align:center">Sin datos disponibles para graficar</p>`;
+    _ltrEmptyChart('ltr-chart', 'Sin datos disponibles para graficar');
     return;
   }
+
+  // ── Autofit ejes ──────────────────────────────────────────────────────────
+  const xVals = valid.map(d => d.dias);
+  const xMin  = Math.min(...xVals);
+  const xMax  = Math.max(...xVals);
+  const xPad  = Math.max((xMax - xMin) * 0.08, 10);
+
+  const yVals = valid.map(d => d[yKey]).filter(Number.isFinite);
+  const yMin  = Math.min(...yVals);
+  const yMax  = Math.max(...yVals);
+  const yPad  = Math.max((yMax - yMin) * 0.18, yKey === 'tna' ? 0.5 : 0.05);
+
+  const trend = _ltrLogReg(valid.map(d => [d.dias, d[yKey]]));
 
   const existing = echarts.getInstanceByDom(el);
   if (existing) existing.dispose();
   el.style.height = '430px';
   const chart = echarts.init(el, 'dcf');
-
-  const trend = _ltrLogReg(valid.map(d => [d.dias, d[yKey]]));
 
   chart.setOption({
     tooltip: {
@@ -220,14 +226,12 @@ function _ltrCurvaChart() {
         if (!p.value || p.seriesType === 'line') return '';
         const d = valid[p.dataIndex];
         if (!d) return '';
-        const fp = (v, dec=2) => v != null ? v.toFixed(dec).replace('.', ',') + '%' : '—';
-        const row = (l, v) =>
-          `<div style="display:flex;justify-content:space-between;gap:16px;margin-top:2px">` +
-          `<span style="color:#7a8fa6">${l}</span><span>${v}</span></div>`;
+        const fp = (v) => v != null ? v.toFixed(2).replace('.', ',') + '%' : '—';
+        const row = (l, v) => `<div style="display:flex;justify-content:space-between;gap:16px;margin-top:2px"><span style="color:#7a8fa6">${l}</span><span>${v}</span></div>`;
         let h = `<div style="font-family:${mono};font-size:11.5px;min-width:170px">`;
         h += `<div style="font-size:13px;font-weight:700;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid rgba(255,255,255,0.08)">${d.ticker}</div>`;
         h += row('Precio',  d.precio != null ? `$${d.precio.toFixed(2).replace('.', ',')}` : '—');
-        h += row('Días',    d.dias ?? '—');
+        h += row('Días',    d.dias);
         h += row('TNA',     fp(d.tna));
         h += row('TEM',     fp(d.tem));
         h += row('TEA',     fp(d.tea));
@@ -238,20 +242,27 @@ function _ltrCurvaChart() {
         return h + '</div>';
       },
     },
-    grid: { left: 8, right: 8, top: 20, bottom: 32, containLabel: true },
+    // Más margen derecho/superior para que labels no se corten
+    grid: { left: 10, right: 20, top: 22, bottom: 36, containLabel: true },
     xAxis: {
-      type: 'value', name: 'Días al vencimiento',
+      type: 'value',
+      name: 'Días al vencimiento',
       nameLocation: 'middle', nameGap: 28,
+      min: Math.max(0, Math.floor(xMin - xPad)),
+      max: Math.ceil(xMax + xPad),
       nameTextStyle: { color: '#64748b', fontFamily: mono, fontSize: 10 },
       axisLabel:  { color: '#64748b', fontFamily: mono, fontSize: 10 },
       axisLine:   { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
       splitLine:  { lineStyle: { color: 'rgba(255,255,255,0.05)', type: 'dashed' } },
     },
     yAxis: {
-      type: 'value', name: yLabel,
+      type: 'value',
+      name: yLabel,
       nameLocation: 'middle', nameGap: 44,
+      min: Math.max(0, +(yMin - yPad).toFixed(2)),
+      max: +(yMax + yPad).toFixed(2),
       nameTextStyle: { color: '#64748b', fontFamily: mono, fontSize: 10 },
-      axisLabel:  { color: '#64748b', fontFamily: mono, fontSize: 10, formatter: v => `${v?.toFixed(1)}%` },
+      axisLabel:  { color: '#64748b', fontFamily: mono, fontSize: 10, formatter: v => `${v?.toFixed(yKey === 'tem' ? 2 : 1)}%` },
       axisLine:   { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
       splitLine:  { lineStyle: { color: 'rgba(255,255,255,0.05)', type: 'dashed' } },
     },
@@ -261,6 +272,7 @@ function _ltrCurvaChart() {
         name: _ltView,
         data: valid.map(d => [d.dias, d[yKey]]),
         symbolSize: 10,
+        clip: false,
         itemStyle: { color: 'transparent', borderColor: '#f97316', borderWidth: 2 },
         label: {
           show: true,
@@ -275,7 +287,8 @@ function _ltrCurvaChart() {
         type: 'line',
         data: trend,
         showSymbol: false,
-        lineStyle: { color: '#f97316', type: 'dashed', width: 1.5, opacity: 0.5 },
+        clip: true,
+        lineStyle: { color: '#f97316', type: 'dashed', width: 1.5, opacity: 0.55 },
         tooltip: { show: false }, silent: true,
       }] : []),
     ],
@@ -285,26 +298,41 @@ function _ltrCurvaChart() {
   new ResizeObserver(() => chart.resize()).observe(el);
 }
 
+// ── Chart Carry-Trade con autofit ──────────────────────────────────────────
 function _ltrCarryChart() {
   const el = document.getElementById('ltr-chart');
   if (!el) return;
 
-  const valid = _ltData.filter(d => d.mep_be != null).sort((a, b) => a.dias - b.dias);
+  const valid = _ltData.filter(d => d.mep_be != null && d.dias > 0).sort((a, b) => a.dias - b.dias);
   const mono  = "'JetBrains Mono',monospace";
 
   if (!valid.length) {
-    dcfCharts.disposeChart('ltr-chart');
-    el.style.height = '';
-    el.innerHTML = `<p style="padding:20px;font-family:${mono};color:var(--text-muted);font-size:.78rem;text-align:center">Sin datos de Carry-Trade disponibles</p>`;
+    _ltrEmptyChart('ltr-chart', 'Sin datos de Carry-Trade disponibles');
     return;
   }
+
+  // ── Autofit ejes ──────────────────────────────────────────────────────────
+  const xVals = valid.map(d => d.dias);
+  const xMin  = Math.min(...xVals);
+  const xMax  = Math.max(...xVals);
+  const xPad  = Math.max((xMax - xMin) * 0.08, 10);
+
+  const yAll  = [
+    ...valid.map(d => d.mep_be),
+    ...valid.filter(d => d.banda_sup != null).map(d => d.banda_sup),
+    ...valid.filter(d => d.banda_inf != null).map(d => d.banda_inf),
+    ...(_ltMep != null ? [_ltMep] : []),
+  ].filter(v => v != null && Number.isFinite(v));
+  const yMin  = Math.min(...yAll);
+  const yMax  = Math.max(...yAll);
+  const yPad  = Math.max((yMax - yMin) * 0.12, 50);
+
+  const fmtARS = v => `$${Math.round(v).toLocaleString('es-AR')}`;
 
   const existing = echarts.getInstanceByDom(el);
   if (existing) existing.dispose();
   el.style.height = '430px';
   const chart = echarts.init(el, 'dcf');
-
-  const fmtARS = v => `$${Math.round(v).toLocaleString('es-AR')}`;
 
   chart.setOption({
     tooltip: {
@@ -317,36 +345,48 @@ function _ltrCarryChart() {
         if (!p.value || p.seriesIndex !== 0) return '';
         const d = valid[p.dataIndex];
         if (!d) return '';
-        const row = (l, v) =>
+        const row = (l, v, col) =>
           `<div style="display:flex;justify-content:space-between;gap:16px;margin-top:2px">` +
-          `<span style="color:#7a8fa6">${l}</span><span>${v}</span></div>`;
-        let h = `<div style="font-family:${mono};font-size:11.5px;min-width:180px">`;
+          `<span style="color:#7a8fa6">${l}</span>` +
+          `<span${col ? ` style="color:${col}"` : ''}>${v}</span></div>`;
+        let h = `<div style="font-family:${mono};font-size:11.5px;min-width:190px">`;
         h += `<div style="font-size:13px;font-weight:700;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid rgba(255,255,255,0.08)">${d.ticker}</div>`;
-        h += row('Días', d.dias);
-        h += row('MEP BE', fmtARS(d.mep_be));
-        if (_ltMep) {
+        if (d.precio != null) h += row('Precio', `$${d.precio.toFixed(2).replace('.', ',')}`, '');
+        h += row('Días', d.dias, '');
+        h += row('MEP BE', fmtARS(d.mep_be), '#f97316');
+        if (_ltMep != null) {
+          h += row('MEP actual', fmtARS(_ltMep), '#4DA3FF');
           const diff = d.mep_be - _ltMep;
           const pct  = ((d.mep_be / _ltMep) - 1) * 100;
-          const col  = diff >= 0 ? '#22c55e' : '#ef4444';
-          h += `<div style="display:flex;justify-content:space-between;gap:16px;margin-top:2px"><span style="color:#7a8fa6">vs MEP actual</span><span style="color:${col}">${diff >= 0 ? '+' : ''}${fmtARS(diff)} (${pct.toFixed(1).replace('.', ',')}%)</span></div>`;
+          h += row('vs MEP', `${diff >= 0 ? '+' : ''}${fmtARS(diff)} (${pct.toFixed(1).replace('.', ',')}%)`, diff >= 0 ? '#22c55e' : '#ef4444');
         }
-        h += row('Banda ↑', d.banda_sup != null ? fmtARS(d.banda_sup) : '—');
-        h += row('Banda ↓', d.banda_inf != null ? fmtARS(d.banda_inf) : '—');
+        if (d.banda_sup != null) h += row('Banda ↑',  fmtARS(d.banda_sup), '#22c55e');
+        if (d.banda_inf != null) h += row('Banda ↓',  fmtARS(d.banda_inf), '#ef4444');
+        if (d.vencimiento) {
+          const [y, m, dv] = d.vencimiento.split('-');
+          h += row('Venc.', `${dv}/${m}/${y}`, '');
+        }
         return h + '</div>';
       },
     },
-    grid: { left: 8, right: 8, top: 36, bottom: 32, containLabel: true },
+    grid: { left: 10, right: 20, top: 36, bottom: 36, containLabel: true },
     xAxis: {
-      type: 'value', name: 'Días al vencimiento',
+      type: 'value',
+      name: 'Días al vencimiento',
       nameLocation: 'middle', nameGap: 28,
+      min: Math.max(0, Math.floor(xMin - xPad)),
+      max: Math.ceil(xMax + xPad),
       nameTextStyle: { color: '#64748b', fontFamily: mono, fontSize: 10 },
       axisLabel:  { color: '#64748b', fontFamily: mono, fontSize: 10 },
       axisLine:   { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
       splitLine:  { lineStyle: { color: 'rgba(255,255,255,0.05)', type: 'dashed' } },
     },
     yAxis: {
-      type: 'value', name: 'MEP (ARS)',
+      type: 'value',
+      name: 'MEP (ARS)',
       nameLocation: 'middle', nameGap: 58,
+      min: Math.max(0, Math.floor(yMin - yPad)),
+      max: Math.ceil(yMax + yPad),
       nameTextStyle: { color: '#64748b', fontFamily: mono, fontSize: 10 },
       axisLabel:  { color: '#64748b', fontFamily: mono, fontSize: 10, formatter: fmtARS },
       axisLine:   { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
@@ -359,12 +399,13 @@ function _ltrCarryChart() {
       itemHeight: 8, itemWidth: 14, itemGap: 12,
     },
     series: [
-      // MEP Breakeven scatter + current MEP markLine
+      // MEP Breakeven scatter con markLine de MEP actual
       {
         type: 'scatter',
         name: 'MEP BE',
         data: valid.map(d => [d.dias, d.mep_be]),
         symbolSize: 10,
+        clip: false,
         itemStyle: { color: 'transparent', borderColor: '#f97316', borderWidth: 2 },
         label: {
           show: true,
@@ -378,7 +419,7 @@ function _ltrCarryChart() {
           markLine: {
             symbol: 'none',
             data: [{ yAxis: _ltMep }],
-            lineStyle: { color: '#4DA3FF', type: 'solid', width: 1.5, opacity: 0.8 },
+            lineStyle: { color: '#4DA3FF', type: 'solid', width: 1.5, opacity: 0.85 },
             label: {
               formatter: () => `MEP ${fmtARS(_ltMep)}`,
               color: '#4DA3FF', fontFamily: mono, fontSize: 9,
@@ -392,7 +433,7 @@ function _ltrCarryChart() {
         type: 'line', name: 'Banda ↑',
         data: valid.filter(d => d.banda_sup != null).map(d => [d.dias, d.banda_sup]),
         showSymbol: false,
-        lineStyle: { color: '#22c55e', type: 'dashed', width: 1.2, opacity: 0.65 },
+        lineStyle: { color: '#22c55e', type: 'dashed', width: 1.5, opacity: 0.7 },
         tooltip: { show: false }, silent: true,
       },
       // Banda inferior
@@ -400,7 +441,7 @@ function _ltrCarryChart() {
         type: 'line', name: 'Banda ↓',
         data: valid.filter(d => d.banda_inf != null).map(d => [d.dias, d.banda_inf]),
         showSymbol: false,
-        lineStyle: { color: '#ef4444', type: 'dashed', width: 1.2, opacity: 0.65 },
+        lineStyle: { color: '#ef4444', type: 'dashed', width: 1.5, opacity: 0.7 },
         tooltip: { show: false }, silent: true,
       },
     ],
@@ -409,9 +450,19 @@ function _ltrCarryChart() {
   new ResizeObserver(() => chart.resize()).observe(el);
 }
 
+// ── Empty chart helper ─────────────────────────────────────────────────────
+function _ltrEmptyChart(domId, msg) {
+  dcfCharts.disposeChart(domId);
+  const el = document.getElementById(domId);
+  if (el) {
+    el.style.height = '';
+    el.innerHTML = `<p style="padding:20px;font-family:'JetBrains Mono',monospace;color:var(--text-muted);font-size:.78rem;text-align:center">${msg}</p>`;
+  }
+}
+
 // ── Regresión logarítmica y = a·ln(x) + b ─────────────────────────────────
 function _ltrLogReg(points) {
-  const valid = points.filter(p => p[0] > 0 && p[1] != null);
+  const valid = points.filter(p => p[0] > 0 && p[1] != null && Number.isFinite(p[1]));
   if (valid.length < 2) return null;
   const n    = valid.length;
   const lnx  = valid.map(p => Math.log(p[0]));
@@ -427,7 +478,8 @@ function _ltrLogReg(points) {
   const x0 = Math.min(...xs), x1 = Math.max(...xs);
   return Array.from({ length: 50 }, (_, i) => {
     const x = x0 + (x1 - x0) * i / 49;
-    return [x, a * Math.log(x) + b];
+    const y = a * Math.log(x) + b;
+    return [x, Math.max(0, y)];  // no negativos
   });
 }
 
