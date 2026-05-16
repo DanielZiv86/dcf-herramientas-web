@@ -719,8 +719,16 @@ function _buildCalcModal(bond, base, mercado) {
                 <label>Precio actual (${mktLabel} c/100 VN)</label>
                 <input type="number" id="calc-input-price" value="${bond.precio ?? ''}" step="0.0001" oninput="_calcUpdate()">
               </div>
+              <div class="bcc-field">
+                <label>Comisión (%)</label>
+                <input type="number" id="calc-input-comm" value="0.50" step="0.01" min="0" max="10" oninput="_calcUpdate()">
+              </div>
+              <div class="bcc-field">
+                <label>Impuestos (%)</label>
+                <input type="number" id="calc-input-tax" value="0.10" step="0.01" min="0" max="10" oninput="_calcUpdate()">
+              </div>
             </div>
-            <p class="bcc-note">Comisión: <b>0,5%</b> · Impuestos: <b>0,1%</b> · Costo total entrada: <b>0,6%</b>. El VN se calcula sobre el monto neto aplicado a la compra.</p>
+            <p class="bcc-note">El monto ingresado es el desembolso total incluyendo costos. El VN se calcula sobre el monto neto = bruto ÷ (1 + costos).</p>
           </div>
         </div>
 
@@ -768,22 +776,29 @@ function _setCalcMode(mode) {
 }
 
 // ── Cálculo por monto bruto ───────────────────────────────────────────────
-function _calcFromGross(gross, price) {
-  const commission = gross * BUY_COMMISSION_RATE;
-  const taxes      = gross * BUY_TAX_RATE;
+// El monto ingresado es el desembolso TOTAL ya incluyendo costos.
+// Por lo tanto: netAmount = gross / (1 + totalCostRate)
+function _calcFromGross(gross, price, commRate, taxRate) {
+  if (!isFinite(gross) || gross <= 0 || !isFinite(price) || price <= 0) return null;
+  const totalCostRate = commRate + taxRate;
+  const netAmount  = gross / (1 + totalCostRate);
+  const commission = netAmount * commRate;
+  const taxes      = netAmount * taxRate;
   const totalCosts = commission + taxes;
-  const netAmount  = gross - totalCosts;
-  const vn         = price > 0 ? (netAmount / price * 100) : 0;
+  const vn         = netAmount / price * 100;
   return { gross, commission, taxes, totalCosts, netAmount, vn };
 }
 
 // ── Cálculo por VN ───────────────────────────────────────────────────────
-function _calcFromVN(vn, price) {
+// Los costos se adicionan SOBRE el monto neto de compra.
+// Por lo tanto: gross = net + net * totalCostRate = net * (1 + totalCostRate)
+function _calcFromVN(vn, price, commRate, taxRate) {
+  if (!isFinite(vn) || vn <= 0 || !isFinite(price) || price <= 0) return null;
   const netAmount  = vn * price / 100;
-  const gross      = netAmount / (1 - BUY_TOTAL_COST_RATE);
-  const commission = gross * BUY_COMMISSION_RATE;
-  const taxes      = gross * BUY_TAX_RATE;
+  const commission = netAmount * commRate;
+  const taxes      = netAmount * taxRate;
   const totalCosts = commission + taxes;
+  const gross      = netAmount + totalCosts;
   return { vn, gross, commission, taxes, totalCosts, netAmount };
 }
 
@@ -792,27 +807,39 @@ function _calcUpdate() {
   const price = parseFloat(document.getElementById('calc-input-price')?.value) || 0;
   if (!price) { _calcClearSummary(); return; }
 
+  // Tasas editables (defaults: comisión 0,5% / impuestos 0,1%)
+  const commPct = parseFloat(document.getElementById('calc-input-comm')?.value ?? '0.5');
+  const taxPct  = parseFloat(document.getElementById('calc-input-tax')?.value  ?? '0.1');
+  const commRate = (isFinite(commPct) ? commPct : 0.5) / 100;
+  const taxRate  = (isFinite(taxPct)  ? taxPct  : 0.1) / 100;
+  const totalCostRate = commRate + taxRate;
+
   let calc;
   if (_calcMode === 'amount') {
     const gross = parseFloat(document.getElementById('calc-input-amount')?.value) || 0;
     if (!gross) { _calcClearSummary(); return; }
-    calc = _calcFromGross(gross, price);
+    calc = _calcFromGross(gross, price, commRate, taxRate);
   } else {
     const vn = parseFloat(document.getElementById('calc-input-vn')?.value) || 0;
     if (!vn) { _calcClearSummary(); return; }
-    calc = _calcFromVN(vn, price);
+    calc = _calcFromVN(vn, price, commRate, taxRate);
   }
+  if (!calc) { _calcClearSummary(); return; }
 
-  const mercado  = _calcBond?.mercado || 'MEP';
-  const ccy      = mercado === 'PESOS' ? '$' : 'USD ';
-  const fmtM = (v, d=2) => ccy + Number(v).toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d});
-  const fmtVN = v => Math.round(v).toLocaleString('es-AR');
-  const fmtPx = v => ccy + Number(v).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const mercado    = _calcBond?.mercado || 'MEP';
+  const ccy        = mercado === 'PESOS' ? '$' : 'USD ';
+  const pricePerVN = price / 100;
 
-  const totalCF    = _calcCFs.reduce((s, cf) => s + (cf.cashflow || 0), 0);
-  const totalInv   = totalCF * calc.vn / 100;
-  const lastCF     = _calcCFs.length ? _calcCFs[_calcCFs.length - 1] : null;
-  const fmtDate    = s => { if (!s) return '—'; const [y,m,d] = s.split('-'); return `${d}/${m}/${y}`; };
+  const fmtM  = (v, d=2) => ccy + Number(v).toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d});
+  const fmtVN = v => Number(v).toLocaleString('es-AR',{minimumFractionDigits:0,maximumFractionDigits:0});
+  const fmtP2 = v => ccy + Number(v).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const fmtP4 = v => ccy + Number(v).toLocaleString('es-AR',{minimumFractionDigits:4,maximumFractionDigits:4});
+  const fmtPct = v => Number(v * 100).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}) + '%';
+
+  const totalCF  = _calcCFs.reduce((s, cf) => s + (cf.cashflow || 0), 0);
+  const totalInv = totalCF * calc.vn / 100;
+  const lastCF   = _calcCFs.length ? _calcCFs[_calcCFs.length - 1] : null;
+  const fmtDate  = s => { if (!s) return '—'; const [y,m,d] = s.split('-'); return `${d}/${m}/${y}`; };
 
   const sRow = (label, val, cls='') =>
     `<div class="bcc-sum-row"><span class="bcc-sum-label">${label}</span><span class="bcc-sum-val ${cls}">${val}</span></div>`;
@@ -820,33 +847,35 @@ function _calcUpdate() {
   let col1, col2;
   if (_calcMode === 'amount') {
     col1 = [
-      sRow('Monto bruto ingresado', fmtM(calc.gross)),
-      sRow('Comisión 0,5%',         fmtM(calc.commission), 'neg'),
-      sRow('Impuestos 0,1%',        fmtM(calc.taxes),      'neg'),
-      sRow('Costos totales 0,6%',   fmtM(calc.totalCosts), 'neg'),
-      sRow('Monto neto aplicado',   fmtM(calc.netAmount),  ''),
+      sRow('Monto bruto ingresado',        fmtM(calc.gross)),
+      sRow(`Comisión ${fmtPct(commRate)}`, fmtM(calc.commission), 'neg'),
+      sRow(`Impuestos ${fmtPct(taxRate)}`, fmtM(calc.taxes),      'neg'),
+      sRow(`Costos ${fmtPct(totalCostRate)}`, fmtM(calc.totalCosts), 'neg'),
+      sRow('Monto neto aplicado a compra', fmtM(calc.netAmount)),
     ];
     col2 = [
-      sRow('Precio usado',         fmtPx(price)),
-      sRow('VN real comprado',     fmtVN(calc.vn),    'accent'),
-      sRow('Total flujos futuros', fmtM(totalInv),    'pos'),
+      sRow('Precio c/100 VN',      fmtP2(price)),
+      sRow('Precio por VN',        fmtP4(pricePerVN)),
+      sRow('VN real comprado',     fmtVN(calc.vn),   'accent'),
+      sRow('Total flujos futuros', fmtM(totalInv),   'pos'),
       sRow('N.º de flujos',        _calcCFs.length + ''),
       sRow('Último flujo',         fmtDate(lastCF?.fecha || '')),
     ];
   } else {
     col1 = [
-      sRow('VN ingresado',         fmtVN(calc.vn),    'accent'),
-      sRow('Monto neto de compra', fmtM(calc.netAmount)),
-      sRow('Comisión 0,5%',        fmtM(calc.commission), 'neg'),
-      sRow('Impuestos 0,1%',       fmtM(calc.taxes),      'neg'),
-      sRow('Costos totales 0,6%',  fmtM(calc.totalCosts), 'neg'),
+      sRow('VN ingresado',                 fmtVN(calc.vn),   'accent'),
+      sRow('Monto neto de compra',         fmtM(calc.netAmount)),
+      sRow(`Comisión ${fmtPct(commRate)}`, fmtM(calc.commission), 'neg'),
+      sRow(`Impuestos ${fmtPct(taxRate)}`, fmtM(calc.taxes),      'neg'),
+      sRow(`Costos ${fmtPct(totalCostRate)}`, fmtM(calc.totalCosts), 'neg'),
     ];
     col2 = [
-      sRow('Monto bruto estimado', fmtM(calc.gross)),
-      sRow('Precio usado',         fmtPx(price)),
-      sRow('Total flujos futuros', fmtM(totalInv),    'pos'),
-      sRow('N.º de flujos',        _calcCFs.length + ''),
-      sRow('Último flujo',         fmtDate(lastCF?.fecha || '')),
+      sRow('Monto bruto total estimado', fmtM(calc.gross)),
+      sRow('Precio c/100 VN',            fmtP2(price)),
+      sRow('Precio por VN',              fmtP4(pricePerVN)),
+      sRow('Total flujos futuros',       fmtM(totalInv),   'pos'),
+      sRow('N.º de flujos',              _calcCFs.length + ''),
+      sRow('Último flujo',               fmtDate(lastCF?.fecha || '')),
     ];
   }
 
