@@ -367,6 +367,94 @@
 .bt2-leg-flat { background: #334155; }
 .bt2-leg-pos  { background: #16a34a; }
 
+/* ── Sensibilidad view ──────────────────────────────────────────────────── */
+.bt2-sensi-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 0 24px;
+}
+
+.bt2-sensi-note {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--bt2-sub);
+  line-height: 1.8;
+  padding: 0 2px;
+}
+.bt2-sensi-code {
+  display: inline;
+  background: rgba(77,163,255,0.1);
+  border: 1px solid rgba(77,163,255,0.22);
+  border-radius: 3px;
+  padding: 1px 7px;
+  color: #4DA3FF;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+.bt2-sensi-loading {
+  font-family: var(--font-mono);
+  color: var(--bt2-sub);
+  font-size: 0.78rem;
+  padding: 20px 4px;
+}
+
+.bt2-sensi-section { }
+.bt2-sensi-scroll {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bt2-border) transparent;
+}
+
+.bt2-sensi-table {
+  min-width: 100%;
+  white-space: nowrap;
+}
+
+/* 2-row header: rowspan cells span both rows vertically centered */
+.bt2-sensi-table thead th[rowspan] {
+  vertical-align: middle;
+  background: var(--bt2-card2);
+  border-bottom: 2px solid var(--bt2-accent);
+}
+
+/* "TIR OBJETIVO" group header cell */
+.bt2-sensi-group-hdr {
+  text-align: center !important;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--bt2-accent) !important;
+  background: rgba(245,158,11,0.07) !important;
+  border-bottom: 1px solid rgba(245,158,11,0.4);
+  padding: 4px 10px;
+}
+
+/* Individual TIR target headers */
+.bt2-sensi-th {
+  text-align: center !important;
+  font-size: 0.62rem;
+  color: var(--bt2-sub);
+  background: var(--bt2-card2);
+  padding: 4px 10px;
+  min-width: 72px;
+  border-bottom: 2px solid var(--bt2-accent);
+}
+
+/* Heatmap cells */
+.bt2-sensi-cell {
+  text-align: right;
+  padding: 5px 10px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: rgba(245,245,245,0.93);
+  white-space: nowrap;
+  min-width: 72px;
+  transition: filter 0.1s;
+}
+.bt2-sensi-cell:hover { filter: brightness(1.3); }
+
 /* Most viewed */
 .bt2-mv-row {
   display: flex;

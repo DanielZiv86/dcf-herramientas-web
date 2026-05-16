@@ -386,34 +386,142 @@ function _renderTopTIR(data) {
     </div>`).join('');
 }
 
-// ── SENSIBILIDAD ──────────────────────────────────────────────────────────
+// ── SENSIBILIDAD — tres tablas apiladas, fórmula duration ─────────────────
 async function renderSensibilidad(container) {
-  container.innerHTML = `
-    <div style="padding:4px 0">
-      <div id="sensi-pills" class="mb-3"></div>
-      <div id="sensi-table"></div>
-    </div>`;
-
-  const loadSensi = async (tipo) => {
-    const tEl = document.getElementById('sensi-table');
-    tEl.innerHTML = `<p style="font-family:var(--font-mono);color:var(--text-muted);padding:12px;font-size:.78rem">Calculando sensibilidad...</p>`;
-    const data = await api.bonos.sensibilidad(tipo).catch(() => []);
-    if (!data?.length) { tEl.innerHTML = `<p style="font-family:var(--font-mono);color:var(--text-muted);padding:12px;font-size:.78rem">Sin datos</p>`; return; }
-    const shifts  = Object.keys(data[0]).filter(k => k.startsWith('shift_'));
-    const headers = ['Ticker', 'TIR Base', ...shifts.map(s => s.replace('shift_', ''))];
-    const rows    = data.map(d => [
-      `<span class="bt2-ny" style="font-weight:700">${d.ticker}</span>`,
-      `${d.tir_base?.toFixed(2)}%`,
-      ...shifts.map(s => `<span style="color:${d[s] >= 0 ? 'var(--positive)' : 'var(--negative)'};font-family:var(--font-mono)">${d[s]?.toFixed(2)}%</span>`),
-    ]);
-    tEl.innerHTML = '';
-    tEl.appendChild(ui.btTable(headers, rows, { maxHeight: 500 }));
+  // TIR objetivo por grupo (valores absolutos en %)
+  const SCEN = {
+    NY:      [5.0, 5.5, 6.0, 6.5, 7.0, 7.5],
+    AR:      [5.0, 5.5, 6.0, 6.5, 7.0, 7.5],
+    BOPREAL: [-5.0, -2.0, 0.0, 2.0, 3.0],
   };
 
-  document.getElementById('sensi-pills').appendChild(
-    ui.pills(['GLOBALES', 'BONARES', 'BOPREAL'], 0, (_, t) => loadSensi(t))
-  );
-  await loadSensi('GLOBALES');
+  container.innerHTML = `
+    <div class="bt2-sensi-wrap">
+      <p class="bt2-sensi-note">
+        <span style="color:var(--bt2-accent)">→</span>
+        Upside/downside estimado ante distintos escenarios de exit yield.
+        Fórmula: <span class="bt2-sensi-code">−DM × (TIR objetivo − TIR actual)</span>
+        · Base <strong>MEP/USD</strong>
+      </p>
+      <div id="sensi-content"></div>
+    </div>`;
+
+  const wrap = document.getElementById('sensi-content');
+
+  // Usa datos ya cargados o fetch si el usuario entró directo al tab
+  let mepData = (_allBondsData.MEP || [])
+    .filter(d => d.tir != null && d.duration != null && !EXCLUDED_BPY.has(d.ticker));
+
+  if (!mepData.length) {
+    wrap.innerHTML = `<p class="bt2-sensi-loading">Cargando datos…</p>`;
+    try {
+      const result = await api.bonos.todos('MEP');
+      if (result?.length) {
+        _allBondsData.MEP = result;
+        mepData = result.filter(d => d.tir != null && d.duration != null && !EXCLUDED_BPY.has(d.ticker));
+      }
+    } catch (_) { /* fall through to empty message */ }
+  }
+
+  if (!mepData.length) {
+    wrap.innerHTML = `
+      <div class="bt2-panel" style="padding:20px 16px">
+        <p style="font-family:var(--font-mono);color:var(--text-muted);font-size:.78rem">
+          Sin datos disponibles. Navegue primero a la vista Soberanos para cargar los datos.
+        </p>
+      </div>`;
+    return;
+  }
+
+  const _byDur = arr => [...arr].sort((a, b) => {
+    if (a.duration == null) return 1;
+    if (b.duration == null) return -1;
+    return a.duration - b.duration;
+  });
+
+  const globales  = _byDur(mepData.filter(d => d.base?.startsWith('GD') && d.group !== 'BOPREAL'));
+  const bonares   = _byDur(mepData.filter(d => ['AL','AE','AN','AO'].some(p => d.base?.startsWith(p)) && d.group !== 'BOPREAL'));
+  const bopreales = _byDur(mepData.filter(d => d.group === 'BOPREAL'));
+
+  // ΔP% = −DM × (TIR_obj% − TIR_actual%)
+  function sensiVal(d, tirObj) {
+    return -d.duration * (tirObj - d.tir);
+  }
+
+  function sensiColor(v) {
+    if (v >= 20)  return '#14532d';
+    if (v >= 12)  return '#166534';
+    if (v >= 6)   return '#15803d';
+    if (v >= 1)   return '#1a4a32';
+    if (v > -1)   return '#1b2d42';
+    if (v >= -6)  return '#5c1f03';
+    if (v >= -12) return '#7f1d1d';
+    return '#5c0a0a';
+  }
+
+  function fmtTIR(v) {
+    return v != null ? v.toFixed(2).replace('.', ',') + '%' : '—';
+  }
+  function fmtDM(v) {
+    return v != null ? v.toFixed(2).replace('.', ',') : '—';
+  }
+  function fmtSensi(v) {
+    if (v == null) return '—';
+    const sign = v > 0 ? '+' : '';
+    return sign + v.toFixed(2).replace('.', ',') + '%';
+  }
+
+  function buildSection(title, bonds, scenarios, tkCls) {
+    if (!bonds.length) return;
+
+    const sCols = scenarios.map(s => ({
+      val: s,
+      label: (s < 0 ? '' : '') + s.toLocaleString('es-AR', { minimumFractionDigits: 1 }) + '%',
+    }));
+
+    const tbody = bonds.map(d => {
+      const cells = sCols.map(c => {
+        const v   = sensiVal(d, c.val);
+        const bg  = sensiColor(v);
+        return `<td class="bt2-sensi-cell" style="background:${bg}">${fmtSensi(v)}</td>`;
+      }).join('');
+      return `<tr class="bt2-row">
+        <td class="bt2-td-ticker ${tkCls}">${d.ticker}</td>
+        <td class="bt2-td-num">${fmtTIR(d.tir)}</td>
+        <td class="bt2-td-num bt2-sub">${fmtDM(d.duration)}</td>
+        ${cells}
+      </tr>`;
+    }).join('');
+
+    const thTargets = sCols.map(c => `<th class="bt2-sensi-th">${c.label}</th>`).join('');
+
+    const el = document.createElement('div');
+    el.className = 'bt2-panel bt2-sensi-section';
+    el.innerHTML = `
+      <div class="bt2-panel-hdr">
+        <span class="bt2-panel-title">${title}</span>
+      </div>
+      <div class="bt2-sensi-scroll">
+        <table class="bt2-table bt2-sensi-table">
+          <thead>
+            <tr>
+              <th style="text-align:left" rowspan="2">BONO</th>
+              <th rowspan="2">TIR ACT.</th>
+              <th rowspan="2">DM</th>
+              <th colspan="${sCols.length}" class="bt2-sensi-group-hdr">TIR OBJETIVO</th>
+            </tr>
+            <tr>${thTargets}</tr>
+          </thead>
+          <tbody>${tbody}</tbody>
+        </table>
+      </div>`;
+    wrap.appendChild(el);
+  }
+
+  wrap.innerHTML = '';
+  buildSection('SOBERANOS LEY NY — GLOBALES', globales,  SCEN.NY,      'bt2-ny');
+  buildSection('SOBERANOS LEY AR — BONARES',  bonares,   SCEN.AR,      'bt2-ar');
+  buildSection('BOPREAL',                     bopreales, SCEN.BOPREAL, 'bt2-bp');
 }
 
 // ── Bond Market Heatmap ───────────────────────────────────────────────────
