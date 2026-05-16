@@ -392,6 +392,38 @@ async def get_full_table() -> list[dict]:
         return []
 
 
+async def get_bond_cashflows(base_ticker: str) -> dict:
+    """Future cashflows per 100 VN for a specific base ticker (HD or BOPREAL)."""
+    today = pd.Timestamp.today().normalize()
+    tk = base_ticker.strip().upper()
+
+    for filename, source in [(BD_BONOS_HD, "HD"), (BD_BOPREALES, "BOPREAL")]:
+        try:
+            cf = load_cashflows(filename)
+            bond_cf = cf[cf["Ticker"] == tk].copy()
+            if bond_cf.empty:
+                continue
+            future = bond_cf[bond_cf["Fecha"] > today].sort_values("Fecha")
+            return {
+                "ticker": tk,
+                "source": source,
+                "vencimiento": bond_cf["Fecha"].max().strftime("%Y-%m-%d"),
+                "cashflows": [
+                    {
+                        "fecha":     row["Fecha"].strftime("%Y-%m-%d"),
+                        "principal": round(float(row["Principal"]), 4) if pd.notna(row.get("Principal")) else 0.0,
+                        "interes":   round(float(row["Int"]),       4) if pd.notna(row.get("Int"))       else 0.0,
+                        "cashflow":  round(float(row["Cashflow"]),  4) if pd.notna(row.get("Cashflow"))  else 0.0,
+                    }
+                    for _, row in future.iterrows()
+                ],
+            }
+        except Exception as e:
+            logger.warning("get_bond_cashflows(%s) from %s failed: %s", tk, filename, e)
+
+    return {"ticker": tk, "cashflows": [], "vencimiento": None}
+
+
 async def get_riesgo_pais_history() -> list[dict]:
     """Historical country risk series."""
     try:

@@ -55,6 +55,15 @@ async def get_riesgo_pais(dcf_session: Optional[str] = Cookie(default=None)):
     return await svc.get_riesgo_pais_history()
 
 
+@router.get("/cashflows")
+async def get_cashflows(
+    ticker: str = Query(description="Base ticker sin sufijo D/C"),
+    dcf_session: Optional[str] = Cookie(default=None),
+):
+    require_auth(dcf_session)
+    return await svc.get_bond_cashflows(ticker)
+
+
 @router.get("/sensibilidad")
 async def get_sensibilidad(
     tipo: str = Query(default="GLOBALES", pattern="^(GLOBALES|BONARES|BOPREAL)$"),

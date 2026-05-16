@@ -2,6 +2,11 @@
 
 const EXCLUDED_BPY = new Set(['BPY26', 'BPY6D', 'BPY6C']);
 
+// ── Costos de entrada ────────────────────────────────────────────────────────
+const BUY_COMMISSION_RATE  = 0.005;   // 0,5%
+const BUY_TAX_RATE         = 0.001;   // 0,1%
+const BUY_TOTAL_COST_RATE  = BUY_COMMISSION_RATE + BUY_TAX_RATE;
+
 // Module-level state — persists across SOBERANOS/SENSIBILIDAD tab switches
 let _showBopreal    = false;
 let _currentMercado = 'MEP';
@@ -277,7 +282,9 @@ function _renderSnapshotTable(data, mercado) {
   function rows(items, cls) {
     return items.map(d => `
       <tr class="bt2-row">
-        <td class="bt2-td-ticker ${cls}">${d.ticker}</td>
+        <td class="bt2-td-ticker ${cls} bond-clickable"
+            onclick="_openBondCalc('${d.ticker}','${d.base}','${mercado}')"
+            title="Click para abrir calculadora">${d.ticker}</td>
         <td class="bt2-td-num">${d.precio ? _n(d.precio) : '—'}</td>
         ${varCell(d.pct_change)}
         <td class="bt2-td-num ${d.tir != null ? (d.tir >= 0 ? 'bt2-pos' : 'bt2-neg') : ''}">${d.tir != null ? d.tir.toFixed(2) + '%' : '—'}</td>
@@ -612,4 +619,310 @@ function _skeletonRows(n) {
   return Array.from({ length: n }, () =>
     `<div class="skeleton skeleton-table-row" style="margin:2px 12px"></div>`
   ).join('');
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   CALCULADORA DE BONOS
+   ───────────────────────────────────────────────────────────────────────── */
+
+let _calcBond = null;   // live bond data (precio, tir, duration…)
+let _calcCFs  = [];     // future cashflows array
+let _calcMode = 'amount'; // 'amount' | 'vn'
+
+// ── Normalizar ticker → base para buscar cashflows ────────────────────────
+function _normTickerCF(ticker) {
+  if (!ticker) return ticker;
+  const t = ticker.toUpperCase();
+  // HD bonds: AL30D→AL30, GD35C→GD35
+  if (/^(AL|AE|AN|AO|GD)\d/.test(t)) return t.replace(/[DC]$/, '');
+  // BOPREAL display tickers: BPA7D→BPOA7, BPB7D→BPOB7, etc.
+  // Format: BP<X><N>D / BP<X><N>C  →  BPO<X><N>
+  const bpMep = t.match(/^BP([A-Z])(\d+)[DC]$/);
+  if (bpMep) return `BPO${bpMep[1]}${bpMep[2]}`;
+  return t;
+}
+
+// ── Abrir calculadora ─────────────────────────────────────────────────────
+async function _openBondCalc(ticker, base, mercado) {
+  const data = (_allBondsData[mercado] || []);
+  const bond = data.find(d => d.ticker === ticker) || { ticker, base, mercado };
+  _calcBond = { ...bond, mercado };
+  _calcMode = 'amount';
+
+  _buildCalcModal(bond, base, mercado);
+  const baseCF = base || _normTickerCF(ticker);
+  await _loadCalcCFs(baseCF);
+}
+
+// ── Construir y mostrar modal ─────────────────────────────────────────────
+function _buildCalcModal(bond, base, mercado) {
+  const old = document.getElementById('bond-calc-overlay');
+  if (old) old.remove();
+
+  const ccy      = mercado === 'PESOS' ? '$' : 'USD ';
+  const mktLabel = { PESOS: 'ARS', MEP: 'USD MEP', CCL: 'USD CCL' }[mercado] || mercado;
+  const group    = bond.group === 'BOPREAL' ? 'BOPREAL'
+                 : bond.base?.startsWith('GD') ? 'LEY NY' : 'LEY AR';
+  const tkCls    = bond.base?.startsWith('GD') ? 'bt2-ny'
+                 : bond.group === 'BOPREAL'    ? 'bt2-bp' : 'bt2-ar';
+
+  const fmtP = (v, d=2) => v != null ? ccy + Number(v).toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d}) : 'N/D';
+  const fmtPct = v => v != null ? v.toFixed(2).replace('.',',')+'%' : 'N/D';
+
+  const mi = (label, val, cls='') =>
+    `<div class="bcc-meta-item"><span class="bcc-meta-label">${label}</span><span class="bcc-meta-val ${cls}">${val}</span></div>`;
+
+  const el = document.createElement('div');
+  el.id = 'bond-calc-overlay';
+  el.className = 'bcc-overlay';
+  el.innerHTML = `
+    <div class="bcc-modal">
+
+      <div class="bcc-header">
+        <div>
+          <span class="bcc-title ${tkCls}">${bond.ticker}</span>
+          <span class="bcc-subtitle">CALCULADORA DE BONO SOBERANO</span>
+        </div>
+        <button class="bcc-close" onclick="document.getElementById('bond-calc-overlay').remove()">✕</button>
+      </div>
+
+      <div class="bcc-body">
+
+        <!-- Metadata strip -->
+        <div class="bcc-meta">
+          ${mi('GRUPO',    group,                        tkCls)}
+          ${mi('MERCADO',  mktLabel,                     'accent')}
+          ${mi('PRECIO',   fmtP(bond.precio),            '')}
+          ${mi('YTM',      fmtPct(bond.tir),             bond.tir > 0 ? 'green' : '')}
+          ${mi('DUR.',     bond.duration != null ? bond.duration.toFixed(2).replace('.',',')+' Y' : 'N/D', '')}
+          ${mi('MONEDA',   mercado === 'PESOS' ? 'ARS' : 'USD', 'sky')}
+        </div>
+
+        <!-- Calculadora -->
+        <div class="bcc-card">
+          <div class="bcc-card-title">CALCULADORA</div>
+          <div class="bcc-card-body">
+            <div class="bcc-mode-toggle">
+              <button class="bcc-mode-btn active" id="calc-btn-amount" onclick="_setCalcMode('amount')">Por monto invertido</button>
+              <button class="bcc-mode-btn"        id="calc-btn-vn"     onclick="_setCalcMode('vn')">Por VN en cartera</button>
+            </div>
+            <div class="bcc-inputs">
+              <div class="bcc-field" id="calc-field-amount">
+                <label>Monto bruto a invertir (${mercado === 'PESOS' ? 'ARS' : 'USD'})</label>
+                <input type="number" id="calc-input-amount" placeholder="Ej: 100.000" min="0" oninput="_calcUpdate()">
+              </div>
+              <div class="bcc-field" id="calc-field-vn">
+                <label>VN en cartera</label>
+                <input type="number" id="calc-input-vn" placeholder="Ej: 100.000" min="0" disabled oninput="_calcUpdate()">
+              </div>
+              <div class="bcc-field">
+                <label>Precio actual (${mktLabel} c/100 VN)</label>
+                <input type="number" id="calc-input-price" value="${bond.precio ?? ''}" step="0.0001" oninput="_calcUpdate()">
+              </div>
+            </div>
+            <p class="bcc-note">Comisión: <b>0,5%</b> · Impuestos: <b>0,1%</b> · Costo total entrada: <b>0,6%</b>. El VN se calcula sobre el monto neto aplicado a la compra.</p>
+          </div>
+        </div>
+
+        <!-- Resumen -->
+        <div class="bcc-card" id="bcc-summary">
+          <div class="bcc-card-title">RESUMEN ESTIMADO</div>
+          <div class="bcc-card-body">
+            <p class="bcc-note">Ingresá monto o VN para ver el resumen.</p>
+          </div>
+        </div>
+
+        <!-- Flujos -->
+        <div class="bcc-card">
+          <div class="bcc-card-title">FLUJOS DE FONDOS</div>
+          <div id="bcc-cf-table">
+            <p class="bcc-note" style="padding:12px">Cargando flujos…</p>
+          </div>
+        </div>
+
+      </div>
+    </div>`;
+
+  document.body.appendChild(el);
+  el.addEventListener('click', e => { if (e.target === el) el.remove(); });
+  const esc = e => { if (e.key === 'Escape') { el.remove(); document.removeEventListener('keydown', esc); } };
+  document.addEventListener('keydown', esc);
+  _setCalcMode('amount');
+}
+
+// ── Toggle modo ───────────────────────────────────────────────────────────
+function _setCalcMode(mode) {
+  _calcMode = mode;
+  document.getElementById('calc-btn-amount')?.classList.toggle('active', mode === 'amount');
+  document.getElementById('calc-btn-vn')?.classList.toggle('active', mode === 'vn');
+  const amtEl = document.getElementById('calc-input-amount');
+  const vnEl  = document.getElementById('calc-input-vn');
+  if (mode === 'amount') {
+    if (amtEl) amtEl.disabled = false;
+    if (vnEl)  { vnEl.value = ''; vnEl.disabled = true; }
+  } else {
+    if (vnEl)  vnEl.disabled = false;
+    if (amtEl) { amtEl.value = ''; amtEl.disabled = true; }
+  }
+  _calcUpdate();
+}
+
+// ── Cálculo por monto bruto ───────────────────────────────────────────────
+function _calcFromGross(gross, price) {
+  const commission = gross * BUY_COMMISSION_RATE;
+  const taxes      = gross * BUY_TAX_RATE;
+  const totalCosts = commission + taxes;
+  const netAmount  = gross - totalCosts;
+  const vn         = price > 0 ? (netAmount / price * 100) : 0;
+  return { gross, commission, taxes, totalCosts, netAmount, vn };
+}
+
+// ── Cálculo por VN ───────────────────────────────────────────────────────
+function _calcFromVN(vn, price) {
+  const netAmount  = vn * price / 100;
+  const gross      = netAmount / (1 - BUY_TOTAL_COST_RATE);
+  const commission = gross * BUY_COMMISSION_RATE;
+  const taxes      = gross * BUY_TAX_RATE;
+  const totalCosts = commission + taxes;
+  return { vn, gross, commission, taxes, totalCosts, netAmount };
+}
+
+// ── Actualizar resumen y tabla ────────────────────────────────────────────
+function _calcUpdate() {
+  const price = parseFloat(document.getElementById('calc-input-price')?.value) || 0;
+  if (!price) { _calcClearSummary(); return; }
+
+  let calc;
+  if (_calcMode === 'amount') {
+    const gross = parseFloat(document.getElementById('calc-input-amount')?.value) || 0;
+    if (!gross) { _calcClearSummary(); return; }
+    calc = _calcFromGross(gross, price);
+  } else {
+    const vn = parseFloat(document.getElementById('calc-input-vn')?.value) || 0;
+    if (!vn) { _calcClearSummary(); return; }
+    calc = _calcFromVN(vn, price);
+  }
+
+  const mercado  = _calcBond?.mercado || 'MEP';
+  const ccy      = mercado === 'PESOS' ? '$' : 'USD ';
+  const fmtM = (v, d=2) => ccy + Number(v).toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d});
+  const fmtVN = v => Math.round(v).toLocaleString('es-AR');
+  const fmtPx = v => ccy + Number(v).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  const totalCF    = _calcCFs.reduce((s, cf) => s + (cf.cashflow || 0), 0);
+  const totalInv   = totalCF * calc.vn / 100;
+  const lastCF     = _calcCFs.length ? _calcCFs[_calcCFs.length - 1] : null;
+  const fmtDate    = s => { if (!s) return '—'; const [y,m,d] = s.split('-'); return `${d}/${m}/${y}`; };
+
+  const sRow = (label, val, cls='') =>
+    `<div class="bcc-sum-row"><span class="bcc-sum-label">${label}</span><span class="bcc-sum-val ${cls}">${val}</span></div>`;
+
+  let col1, col2;
+  if (_calcMode === 'amount') {
+    col1 = [
+      sRow('Monto bruto ingresado', fmtM(calc.gross)),
+      sRow('Comisión 0,5%',         fmtM(calc.commission), 'neg'),
+      sRow('Impuestos 0,1%',        fmtM(calc.taxes),      'neg'),
+      sRow('Costos totales 0,6%',   fmtM(calc.totalCosts), 'neg'),
+      sRow('Monto neto aplicado',   fmtM(calc.netAmount),  ''),
+    ];
+    col2 = [
+      sRow('Precio usado',         fmtPx(price)),
+      sRow('VN real comprado',     fmtVN(calc.vn),    'accent'),
+      sRow('Total flujos futuros', fmtM(totalInv),    'pos'),
+      sRow('N.º de flujos',        _calcCFs.length + ''),
+      sRow('Último flujo',         fmtDate(lastCF?.fecha || '')),
+    ];
+  } else {
+    col1 = [
+      sRow('VN ingresado',         fmtVN(calc.vn),    'accent'),
+      sRow('Monto neto de compra', fmtM(calc.netAmount)),
+      sRow('Comisión 0,5%',        fmtM(calc.commission), 'neg'),
+      sRow('Impuestos 0,1%',       fmtM(calc.taxes),      'neg'),
+      sRow('Costos totales 0,6%',  fmtM(calc.totalCosts), 'neg'),
+    ];
+    col2 = [
+      sRow('Monto bruto estimado', fmtM(calc.gross)),
+      sRow('Precio usado',         fmtPx(price)),
+      sRow('Total flujos futuros', fmtM(totalInv),    'pos'),
+      sRow('N.º de flujos',        _calcCFs.length + ''),
+      sRow('Último flujo',         fmtDate(lastCF?.fecha || '')),
+    ];
+  }
+
+  const sumEl = document.querySelector('#bcc-summary .bcc-card-body');
+  if (sumEl) {
+    sumEl.innerHTML = `<div class="bcc-sum-grid"><div>${col1.join('')}</div><div>${col2.join('')}</div></div>`;
+  }
+
+  _renderCalcCFs(calc.vn, ccy);
+}
+
+function _calcClearSummary() {
+  const sumEl = document.querySelector('#bcc-summary .bcc-card-body');
+  if (sumEl) sumEl.innerHTML = `<p class="bcc-note">Ingresá monto o VN para ver el resumen.</p>`;
+  _renderCalcCFs(null, '');
+}
+
+// ── Cargar cashflows desde API ────────────────────────────────────────────
+async function _loadCalcCFs(baseTicker) {
+  const el = document.getElementById('bcc-cf-table');
+  if (!el) return;
+  try {
+    const res = await api.bonos.cashflows(baseTicker);
+    _calcCFs = res.cashflows || [];
+    _renderCalcCFs(null, '');
+    _calcUpdate();
+  } catch (e) {
+    if (el) el.innerHTML = `<p class="bcc-note" style="padding:12px;color:var(--negative)">Error al cargar flujos: ${e.message}</p>`;
+  }
+}
+
+// ── Renderizar tabla de cashflows ─────────────────────────────────────────
+function _renderCalcCFs(vn, ccy) {
+  const el = document.getElementById('bcc-cf-table');
+  if (!el) return;
+
+  if (!_calcCFs.length) {
+    el.innerHTML = `<p class="bcc-note" style="padding:12px">No se encontraron flujos de fondos para este bono.</p>`;
+    return;
+  }
+
+  const hasCmp = _calcCFs.some(cf => cf.interes != null || cf.principal != null);
+  const fmtN = (v, d=4) => v != null ? Number(v).toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d}) : '—';
+  const fmtD = s => { const [y,m,d] = s.split('-'); return `${d}/${m}/${y}`; };
+
+  const thInv = vn != null ? '<th>TU INVERSIÓN</th>' : '';
+  let thead;
+  if (hasCmp) {
+    thead = `<th style="text-align:left">FECHA</th><th>INTERÉS</th><th>AMORT.</th><th>TOTAL /100VN</th>${thInv}`;
+  } else {
+    thead = `<th style="text-align:left">FECHA</th><th>TOTAL /100VN</th>${thInv}`;
+  }
+
+  const tbody = _calcCFs.map(cf => {
+    const inv = vn != null
+      ? `<td class="bt2-td-num" style="color:var(--bt2-pos);font-weight:700">${ccy}${fmtN(cf.cashflow * vn / 100, 2)}</td>`
+      : '';
+    if (hasCmp) {
+      return `<tr class="bt2-row">
+        <td class="bt2-td-ticker" style="color:var(--bt2-sub)">${fmtD(cf.fecha)}</td>
+        <td class="bt2-td-num">${fmtN(cf.interes)}</td>
+        <td class="bt2-td-num">${fmtN(cf.principal)}</td>
+        <td class="bt2-td-num" style="font-weight:700">${fmtN(cf.cashflow)}</td>
+        ${inv}</tr>`;
+    }
+    return `<tr class="bt2-row">
+      <td class="bt2-td-ticker" style="color:var(--bt2-sub)">${fmtD(cf.fecha)}</td>
+      <td class="bt2-td-num" style="font-weight:700">${fmtN(cf.cashflow)}</td>
+      ${inv}</tr>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div style="overflow-x:auto">
+      <table class="bt2-table" style="font-size:.78rem">
+        <thead><tr>${thead}</tr></thead>
+        <tbody>${tbody}</tbody>
+      </table>
+    </div>`;
 }

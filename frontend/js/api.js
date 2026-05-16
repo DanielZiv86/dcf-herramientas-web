@@ -66,6 +66,7 @@ const api = {
     bopreal:     (mercado = 'MEP') => apiFetch(`/bonos/bopreal?mercado=${mercado}`),
     riesgoPais:  () => apiFetch('/bonos/riesgo-pais'),
     sensibilidad:(tipo = 'GLOBALES') => apiFetch(`/bonos/sensibilidad?tipo=${tipo}`),
+    cashflows:   (ticker) => apiFetch(`/bonos/cashflows?ticker=${encodeURIComponent(ticker)}`),
   },
   letras: {
     carry:  () => apiFetch('/letras/carry'),
