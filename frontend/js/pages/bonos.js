@@ -186,10 +186,16 @@ async function renderSoberanos(container) {
       `<p style="padding:12px;font-family:var(--font-mono);color:var(--negative);font-size:.78rem">Error cargando datos</p>`;
   }
 
-  if (rpRes.status === 'fulfilled') {
+  if (rpRes.status === 'fulfilled' && rpRes.value?.length) {
     rpHistData = rpRes.value;
     _renderRPHeader(rpHistData);
     _renderRPChart(rpHistData, '1M');
+  } else {
+    // API no disponible: mostrar mensaje en el área del chart
+    const rpChart = document.getElementById('chart-riesgo-pais');
+    if (rpChart) {
+      rpChart.innerHTML = `<p style="padding:8px 4px;font-family:var(--font-mono);color:var(--text-muted);font-size:.68rem;text-align:center">Sin datos disponibles</p>`;
+    }
   }
 }
 

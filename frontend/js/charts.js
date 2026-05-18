@@ -536,11 +536,11 @@ function renderScatterBT(domId, series, {
       itemWidth: 14,
       itemGap: 14,
     },
-    // Explicit grid: top room for legend, bottom room for xAxis name
-    grid: { left: 8, right: 8, top: 36, bottom: 32, containLabel: true },
+    // Grid: enough bottom room for xAxis name; containLabel handles tick labels
+    grid: { left: 8, right: 8, top: 36, bottom: 38, containLabel: true },
     xAxis: {
       type: 'value', name: xLabel,
-      nameLocation: 'middle', nameGap: 30,
+      nameLocation: 'middle', nameGap: 26,
       nameTextStyle: { color: '#64748b', fontFamily: mono, fontSize: 10 },
       axisLabel: { color: '#64748b', fontFamily: mono, fontSize: 10 },
       axisLine:  { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
@@ -548,8 +548,9 @@ function renderScatterBT(domId, series, {
     },
     yAxis: {
       type: 'value', name: yLabel,
-      nameLocation: 'middle', nameGap: 42,
-      nameTextStyle: { color: '#64748b', fontFamily: mono, fontSize: 10 },
+      // 'end' posiciona el nombre en el extremo superior del eje (sin riesgo de clipping lateral)
+      nameLocation: 'end', nameGap: 6,
+      nameTextStyle: { color: '#64748b', fontFamily: mono, fontSize: 10, align: 'left' },
       axisLabel: { color: '#64748b', fontFamily: mono, fontSize: 10, formatter: yFormatter },
       axisLine:  { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
       splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)', type: 'dashed' } },

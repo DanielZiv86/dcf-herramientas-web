@@ -425,16 +425,42 @@ async def get_bond_cashflows(base_ticker: str) -> dict:
 
 
 async def get_riesgo_pais_history() -> list[dict]:
-    """Historical country risk series."""
-    try:
-        async with httpx.AsyncClient(timeout=10) as c:
-            r = await c.get(URL_RIESGO_PAIS_HIST)
-            r.raise_for_status()
-            data = r.json()
-            return [{"fecha": d["fecha"], "valor": d["valor"]} for d in data[-180:]]
-    except Exception as e:
-        logger.warning("Riesgo País history failed: %s", e)
-        return []
+    """Historical country risk series — robust parsing, tolerates API envelope changes."""
+    urls = [
+        URL_RIESGO_PAIS_HIST,
+        "https://api.argentinadatos.com/v1/finanzas/indices/riesgo-pais/",
+    ]
+    for url in urls:
+        try:
+            async with httpx.AsyncClient(timeout=12) as c:
+                r = await c.get(url)
+                r.raise_for_status()
+                raw = r.json()
+
+            # Accept both a direct list and a dict envelope like {"data": [...]}
+            data = raw if isinstance(raw, list) else raw.get("data", raw.get("riesgo_pais", []))
+            if not isinstance(data, list) or not data:
+                continue
+
+            result = []
+            for d in data[-180:]:
+                if not isinstance(d, dict):
+                    continue
+                fecha = d.get("fecha") or d.get("date") or d.get("Fecha")
+                valor = d.get("valor") or d.get("value") or d.get("Valor")
+                if fecha is None or valor is None:
+                    continue
+                try:
+                    result.append({"fecha": str(fecha), "valor": float(valor)})
+                except (ValueError, TypeError):
+                    continue
+
+            if result:
+                return result
+        except Exception as e:
+            logger.warning("Riesgo País history failed (%s): %s", url, e)
+
+    return []
 
 
 async def get_sensibilidad(bond_type: str = "GLOBALES") -> list[dict]:

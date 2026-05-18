@@ -203,12 +203,11 @@ function _ltrCurvaChart() {
         return h + '</div>';
       },
     },
-    // Más margen derecho/superior para que labels no se corten
-    grid: { left: 10, right: 20, top: 22, bottom: 36, containLabel: true },
+    grid: { left: 10, right: 20, top: 22, bottom: 38, containLabel: true },
     xAxis: {
       type: 'value',
       name: 'Días al vencimiento',
-      nameLocation: 'middle', nameGap: 28,
+      nameLocation: 'middle', nameGap: 26,
       min: Math.max(0, Math.floor(xMin - xPad)),
       max: Math.ceil(xMax + xPad),
       nameTextStyle: { color: '#64748b', fontFamily: mono, fontSize: 10 },
@@ -219,10 +218,10 @@ function _ltrCurvaChart() {
     yAxis: {
       type: 'value',
       name: yLabel,
-      nameLocation: 'middle', nameGap: 44,
+      nameLocation: 'end', nameGap: 6,
       min: Math.max(0, +(yMin - yPad).toFixed(2)),
       max: +(yMax + yPad).toFixed(2),
-      nameTextStyle: { color: '#64748b', fontFamily: mono, fontSize: 10 },
+      nameTextStyle: { color: '#64748b', fontFamily: mono, fontSize: 10, align: 'left' },
       axisLabel:  { color: '#64748b', fontFamily: mono, fontSize: 10, formatter: v => `${v?.toFixed(yKey === 'tem' ? 2 : 1)}%` },
       axisLine:   { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
       splitLine:  { lineStyle: { color: 'rgba(255,255,255,0.05)', type: 'dashed' } },
