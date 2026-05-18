@@ -128,7 +128,28 @@ async def _scrape_bonistas() -> pd.DataFrame:
             if cer_mask.any():
                 df = df[cer_mask].copy()
 
-        logger.info("Bonistas CER scraped: %d rows, cols: %s", len(df), list(df.columns[:12]))
+        # ── Deduplicate by settlement type ────────────────────────────────────
+        # Bonistas returns T+1 and T+2 versions; prefer the 24hs / spot row.
+        settle_col = next(
+            (c for c in df.columns
+             if c.lower() in ('plazo', 'settlement', 'liquidacion', 'term', 'tipo', 'tipo_liquidacion')),
+            None
+        )
+        if settle_col:
+            s = df[settle_col].astype(str).str.lower()
+            mask_24 = s.str.contains(r'24|spot|ci\b|contado', na=False, regex=True)
+            if mask_24.any():
+                df = df[mask_24].copy()
+            else:
+                # If no 24hs, drop exact duplicates by ticker
+                ticker_col = next(
+                    (c for c in df.columns if c.lower() in ('ticker', 'symbol', 't', 'especie')),
+                    None
+                )
+                if ticker_col:
+                    df = df.drop_duplicates(subset=[ticker_col], keep='first')
+
+        logger.info("Bonistas CER: %d rows (after dedup), cols: %s", len(df), list(df.columns[:14]))
         return df
 
     except Exception as e:
@@ -240,7 +261,12 @@ async def get_cer_table() -> list[dict]:
         logger.warning("CER: Bonistas unavailable, serving data912-only fallback")
         return await _cer_from_data912_only(prices)
 
+    # Log ALL column names so we can diagnose field-name mismatches in Render logs
+    logger.info("CER Bonistas columns: %s", list(bonistas_df.columns))
+
     rows = []
+    seen_tickers: set[str] = set()   # dedup safety net
+
     for _, row in bonistas_df.iterrows():
         # Ticker — try multiple field names
         ticker = str(
@@ -253,6 +279,11 @@ async def get_cer_table() -> list[dict]:
         # Skip amortizing bonds that clutter the CER chart
         if ticker in ("DICP", "PARP", "CUAP"):
             continue
+
+        # Deduplicate: skip if we already added this ticker
+        if ticker in seen_tickers:
+            continue
+        seen_tickers.add(ticker)
 
         # Price — prefer data912; fall back to Bonistas field
         price = prices.get(ticker)
@@ -271,15 +302,32 @@ async def get_cer_table() -> list[dict]:
         def _get(*keys):
             for k in keys:
                 v = row.get(k)
-                if v is not None:
+                if v is not None and str(v).strip() not in ('', 'nan', 'None', '-', '–'):
                     return v
             return None
 
-        tir_real_raw  = _get("tir_real",   "tirReal",   "yield_real",  "real_yield")
-        tir_nom_raw   = _get("tir",        "tir_nominal", "yield",     "nominal_yield", "tna")
-        duration_raw  = _get("duration",   "modified_duration", "duracion", "dur")
-        maturity_raw  = _get("vencimiento", "maturity",  "end_date",   "fecha_vencimiento", "expiration")
-        var_dia_raw   = _get("var_dia",    "varDia",    "pct_change",  "variacion", "var")
+        # Bonistas field names vary — TIR_raw / ttir / tir_val are documented in Streamlit port
+        tir_real_raw = _get(
+            "tir_real", "tirReal", "yield_real", "real_yield",
+            "TIR_real", "TIR_%", "TIR_raw", "ttir", "tir_val",
+            "rendimiento_real", "tir_cer", "cer_yield",
+        )
+        tir_nom_raw = _get(
+            "tir", "tir_nominal", "yield", "nominal_yield",
+            "TIR_nominal", "TNA", "tna", "rendimiento", "tir_nom",
+        )
+        duration_raw = _get(
+            "duration", "modified_duration", "duracion", "dur",
+            "Duration", "Duracion", "md",
+        )
+        maturity_raw = _get(
+            "vencimiento", "maturity", "end_date", "fecha_vencimiento",
+            "expiration", "Vencimiento", "FechaVencimiento", "vto",
+        )
+        var_dia_raw = _get(
+            "var_dia", "varDia", "pct_change", "variacion", "var",
+            "Var%", "Variacion", "cambio", "delta",
+        )
 
         tir_real  = _to_pct(tir_real_raw)  if tir_real_raw  is not None else None
         tir_nom   = _to_pct(tir_nom_raw)   if tir_nom_raw   is not None else None
