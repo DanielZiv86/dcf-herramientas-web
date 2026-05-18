@@ -79,7 +79,9 @@ function _ltrUpdateAll() {
   _ltrRenderChart();
 }
 
-// ── Tabla ──────────────────────────────────────────────────────────────────
+// ── Tabla compacta uniforme ────────────────────────────────────────────────
+// TICKER | PRECIO | VAR % | TNA | TEA | TEM  — siempre igual, sin importar el tab activo.
+// Días, vencimiento y datos extendidos van en el modal al hacer click.
 function _ltrRenderTable() {
   const wrap = document.getElementById('ltr-table-wrap');
   if (!wrap) return;
@@ -91,80 +93,39 @@ function _ltrRenderTable() {
 
   const sorted = [..._ltData].sort((a, b) => (a.dias ?? 9999) - (b.dias ?? 9999));
 
-  function tdNum(val)            { return `<td class="bt2-td-num">${val ?? '—'}</td>`; }
   function tdPct(val, hl = false) {
     if (val == null) return `<td class="bt2-td-num bt2-sub">—</td>`;
-    const str = val.toFixed(2).replace('.', ',') + '%';
-    return `<td class="bt2-td-num${hl ? ' ltr-hl' : ''}">${str}</td>`;
+    return `<td class="bt2-td-num${hl ? ' ltr-hl' : ''}">${val.toFixed(2).replace('.', ',')}%</td>`;
   }
-  function tdARS(val) {
+  function tdVar(val) {
     if (val == null) return `<td class="bt2-td-num bt2-sub">—</td>`;
-    return `<td class="bt2-td-num">$${Number(val).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>`;
-  }
-  function tdDate(val) {
-    if (!val) return `<td class="bt2-td-num bt2-sub">—</td>`;
-    const [y, m, d] = val.split('-');
-    return `<td class="bt2-td-num bt2-sub">${d}/${m}/${y}</td>`;
-  }
-  function tdPrecio(val) {
-    if (val == null) return `<td class="bt2-td-num">—</td>`;
-    return `<td class="bt2-td-num">$${val.toFixed(2).replace('.', ',')}</td>`;
+    const sign = val > 0 ? '+' : '';
+    const cls  = val > 0.01 ? 'bt2-pos' : val < -0.01 ? 'bt2-neg' : 'bt2-sub';
+    return `<td class="bt2-td-num ${cls}">${sign}${val.toFixed(2).replace('.', ',')}%</td>`;
   }
 
-  let headers, rows;
+  const headers = `<tr>
+    <th style="text-align:left">TICKER</th>
+    <th>PRECIO</th>
+    <th>VAR %</th>
+    <th class="ltr-th-hl">TNA</th>
+    <th>TEA</th>
+    <th>TEM</th>
+  </tr>`;
 
-  if (_ltView === 'TNA') {
-    headers = `<tr>
-      <th style="text-align:left">TICKER</th>
-      <th>PRECIO</th><th>DÍAS</th>
-      <th class="ltr-th-hl">TNA</th>
-      <th>TEA</th><th>TEM</th><th>VENC.</th>
-    </tr>`;
-    rows = sorted.map(d => `<tr class="bt2-row">
-      <td class="bt2-td-ticker ltr-tk">${d.ticker}</td>
-      ${tdPrecio(d.precio)}
-      ${tdNum(d.dias)}
+  const rows = sorted.map(d => {
+    const priceStr = d.precio != null ? `$${d.precio.toFixed(2).replace('.', ',')}` : '—';
+    return `<tr class="bt2-row">
+      <td class="bt2-td-ticker ltr-tk bond-clickable"
+          onclick="_openLetraCalc('${d.ticker}')"
+          title="Click para abrir calculadora">${d.ticker}</td>
+      <td class="bt2-td-num">${priceStr}</td>
+      ${tdVar(d.pct_change)}
       ${tdPct(d.tna, true)}
       ${tdPct(d.tea)}
       ${tdPct(d.tem)}
-      ${tdDate(d.vencimiento)}
-    </tr>`).join('');
-
-  } else if (_ltView === 'TEM') {
-    headers = `<tr>
-      <th style="text-align:left">TICKER</th>
-      <th>PRECIO</th><th>DÍAS</th>
-      <th class="ltr-th-hl">TEM</th>
-      <th>TNA</th><th>MEP BE</th><th>VENC.</th>
     </tr>`;
-    rows = sorted.map(d => `<tr class="bt2-row">
-      <td class="bt2-td-ticker ltr-tk">${d.ticker}</td>
-      ${tdPrecio(d.precio)}
-      ${tdNum(d.dias)}
-      ${tdPct(d.tem, true)}
-      ${tdPct(d.tna)}
-      ${tdARS(d.mep_be)}
-      ${tdDate(d.vencimiento)}
-    </tr>`).join('');
-
-  } else { // Carry-Trade
-    headers = `<tr>
-      <th style="text-align:left">TICKER</th>
-      <th>PRECIO</th><th>DÍAS</th>
-      <th>TNA</th>
-      <th class="ltr-th-hl">MEP BE</th>
-      <th>BANDA ↑</th><th>BANDA ↓</th>
-    </tr>`;
-    rows = sorted.map(d => `<tr class="bt2-row">
-      <td class="bt2-td-ticker ltr-tk">${d.ticker}</td>
-      ${tdPrecio(d.precio)}
-      ${tdNum(d.dias)}
-      ${tdPct(d.tna)}
-      ${tdARS(d.mep_be)}
-      ${tdARS(d.banda_sup)}
-      ${tdARS(d.banda_inf)}
-    </tr>`).join('');
-  }
+  }).join('');
 
   wrap.innerHTML = `
     <table class="bt2-table">
@@ -488,4 +449,242 @@ function _ltrSkeleton(n) {
   return Array.from({ length: n }, () =>
     `<div class="skeleton skeleton-table-row" style="margin:2px 12px"></div>`
   ).join('');
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   CALCULADORA DE LETRAS Y BONCAPS
+   ───────────────────────────────────────────────────────────────────────── */
+
+const LTR_COMM_DEFAULT = 0.50;  // % comisión
+const LTR_TAX_DEFAULT  = 0.01;  // % impuestos
+
+// ── Abrir calculadora ─────────────────────────────────────────────────────
+function _openLetraCalc(ticker) {
+  const d = _ltData.find(x => x.ticker === ticker);
+  if (!d) return;
+  _buildLetraModal(d);
+}
+
+// ── Construir modal ───────────────────────────────────────────────────────
+function _buildLetraModal(d) {
+  const old = document.getElementById('ltr-calc-overlay');
+  if (old) old.remove();
+
+  const fmtP = (v, d2=2) => v != null ? `$${Number(v).toLocaleString('es-AR',{minimumFractionDigits:d2,maximumFractionDigits:d2})}` : '—';
+  const fmtPct = v => v != null ? v.toFixed(2).replace('.',',')+'%' : '—';
+  const fmtDate = s => { if (!s) return '—'; const [y,m,dv]=s.split('-'); return `${dv}/${m}/${y}`; };
+
+  const retorno = (d.payoff != null && d.precio != null && d.precio > 0)
+    ? (d.payoff / d.precio - 1) * 100 : null;
+  const retCls  = retorno != null ? (retorno > 0 ? 'green' : retorno < 0 ? 'neg' : '') : '';
+  const retStr  = retorno != null ? (retorno >= 0 ? '+' : '') + retorno.toFixed(2).replace('.',',') + '%' : '—';
+
+  const mi = (label, val, cls='') =>
+    `<div class="bcc-meta-item"><span class="bcc-meta-label">${label}</span><span class="bcc-meta-val ${cls}">${val}</span></div>`;
+
+  const el = document.createElement('div');
+  el.id = 'ltr-calc-overlay';
+  el.className = 'bcc-overlay';
+  el.innerHTML = `
+    <div class="bcc-modal">
+
+      <div class="bcc-header">
+        <div>
+          <span class="bcc-title" style="color:var(--bt2-accent)">${d.ticker}</span>
+          <span class="bcc-subtitle">CALCULADORA LETRA / BONCAP</span>
+        </div>
+        <button class="bcc-close" onclick="document.getElementById('ltr-calc-overlay').remove()">✕</button>
+      </div>
+
+      <div class="bcc-body">
+
+        <!-- Metadata: fechas y tasas -->
+        <div class="bcc-meta">
+          ${d.vencimiento ? mi('VENCE', fmtDate(d.vencimiento), '') : ''}
+          ${d.dias != null ? mi('DÍAS', d.dias + '', '') : ''}
+          ${mi('TNA', fmtPct(d.tna), 'accent')}
+          ${mi('TEA', fmtPct(d.tea), '')}
+          ${mi('TEM', fmtPct(d.tem), '')}
+          ${d.mep_be != null ? mi('MEP BE', '$' + Number(d.mep_be).toLocaleString('es-AR'), '') : ''}
+        </div>
+
+        <!-- Strip de precios -->
+        <div class="ltr-price-strip">
+          <div class="ltr-price-card">
+            <div class="ltr-price-label">PRECIO ACTUAL</div>
+            <div class="ltr-price-val">${fmtP(d.precio)}</div>
+          </div>
+          <div class="ltr-price-card ltr-price-card-accent">
+            <div class="ltr-price-label">PRECIO AL VENCIMIENTO</div>
+            <div class="ltr-price-val">${fmtP(d.payoff)}</div>
+            ${d.payoff == null ? `<div class="ltr-price-note">No disponible para este instrumento</div>` : ''}
+          </div>
+          <div class="ltr-price-card">
+            <div class="ltr-price-label">RETORNO EST. HASTA VENC.</div>
+            <div class="ltr-price-val ${retCls}">${retStr}</div>
+            ${d.payoff != null && d.precio != null
+              ? `<div class="ltr-price-note">${fmtP(d.payoff)} − ${fmtP(d.precio)} = ${fmtP(d.payoff != null && d.precio != null ? d.payoff - d.precio : null)}</div>`
+              : ''}
+          </div>
+        </div>
+
+        <!-- Calculadora -->
+        <div class="bcc-card">
+          <div class="bcc-card-title">CALCULADORA</div>
+          <div class="bcc-card-body">
+            <div class="bcc-mode-toggle">
+              <button class="bcc-mode-btn active" id="ltr-btn-amount" onclick="_setLtrMode('amount')">Por monto invertido</button>
+              <button class="bcc-mode-btn"        id="ltr-btn-nom"    onclick="_setLtrMode('nom')">Por nominales</button>
+            </div>
+            <div class="bcc-inputs">
+              <div class="bcc-field">
+                <label id="ltr-amount-label">Monto bruto a invertir ($)</label>
+                <input type="number" id="ltr-input-amount" placeholder="Ej: 100.000" min="0" oninput="_letraCalcUpdate()">
+              </div>
+              <div class="bcc-field">
+                <label>Nominales a comprar</label>
+                <input type="number" id="ltr-input-nom" placeholder="Ej: 750" min="0" disabled oninput="_letraCalcUpdate()">
+              </div>
+              <div class="bcc-field">
+                <label>Precio actual</label>
+                <input type="number" id="ltr-input-price" value="${d.precio ?? ''}" step="0.0001" oninput="_letraCalcUpdate()">
+              </div>
+              <div class="bcc-field">
+                <label>Precio al vencimiento</label>
+                <input type="number" id="ltr-input-payoff" value="${d.payoff ?? ''}" step="0.0001" oninput="_letraCalcUpdate()">
+              </div>
+              <div class="bcc-field">
+                <label>Comisión (%)</label>
+                <input type="number" id="ltr-input-comm" value="${LTR_COMM_DEFAULT}" step="0.01" min="0" max="10" oninput="_letraCalcUpdate()">
+              </div>
+              <div class="bcc-field">
+                <label>Impuestos (%)</label>
+                <input type="number" id="ltr-input-tax" value="${LTR_TAX_DEFAULT}" step="0.01" min="0" max="10" oninput="_letraCalcUpdate()">
+              </div>
+            </div>
+            <p class="bcc-note">El monto ingresado es el desembolso total incluyendo costos. Net = bruto ÷ (1 + costos).</p>
+          </div>
+        </div>
+
+        <!-- Resumen -->
+        <div class="bcc-card" id="ltr-calc-summary">
+          <div class="bcc-card-title">RESUMEN ESTIMADO</div>
+          <div class="bcc-card-body">
+            <p class="bcc-note">Ingresá monto o nominales para ver el resumen.</p>
+          </div>
+        </div>
+
+      </div>
+    </div>`;
+
+  document.body.appendChild(el);
+  el.addEventListener('click', e => { if (e.target === el) el.remove(); });
+  const esc = e => { if (e.key === 'Escape') { el.remove(); document.removeEventListener('keydown', esc); } };
+  document.addEventListener('keydown', esc);
+  _setLtrMode('amount');
+}
+
+// ── Toggle modo ───────────────────────────────────────────────────────────
+let _ltrCalcMode = 'amount';
+function _setLtrMode(mode) {
+  _ltrCalcMode = mode;
+  document.getElementById('ltr-btn-amount')?.classList.toggle('active', mode === 'amount');
+  document.getElementById('ltr-btn-nom')?.classList.toggle('active', mode === 'nom');
+  const amtEl = document.getElementById('ltr-input-amount');
+  const nomEl = document.getElementById('ltr-input-nom');
+  if (mode === 'amount') {
+    if (amtEl) amtEl.disabled = false;
+    if (nomEl) { nomEl.value = ''; nomEl.disabled = true; }
+  } else {
+    if (nomEl) nomEl.disabled = false;
+    if (amtEl) { amtEl.value = ''; amtEl.disabled = true; }
+  }
+  _letraCalcUpdate();
+}
+
+// ── Recalcular ────────────────────────────────────────────────────────────
+function _letraCalcUpdate() {
+  const price  = parseFloat(document.getElementById('ltr-input-price')?.value) || 0;
+  const payoff = parseFloat(document.getElementById('ltr-input-payoff')?.value) || 0;
+  const commPct = parseFloat(document.getElementById('ltr-input-comm')?.value ?? LTR_COMM_DEFAULT);
+  const taxPct  = parseFloat(document.getElementById('ltr-input-tax')?.value  ?? LTR_TAX_DEFAULT);
+
+  if (!price) { _ltrClearSummary(); return; }
+
+  const commRate = (isFinite(commPct) ? commPct : LTR_COMM_DEFAULT) / 100;
+  const taxRate  = (isFinite(taxPct)  ? taxPct  : LTR_TAX_DEFAULT) / 100;
+  const costRate = commRate + taxRate;
+
+  let net, gross, nom;
+
+  if (_ltrCalcMode === 'amount') {
+    gross = parseFloat(document.getElementById('ltr-input-amount')?.value) || 0;
+    if (!gross) { _ltrClearSummary(); return; }
+    net = gross / (1 + costRate);
+    nom = net / price;
+  } else {
+    nom = parseFloat(document.getElementById('ltr-input-nom')?.value) || 0;
+    if (!nom) { _ltrClearSummary(); return; }
+    net   = nom * price;
+    gross = net * (1 + costRate);
+  }
+
+  const commission = net * commRate;
+  const taxes      = net * taxRate;
+  const totalCosts = commission + taxes;
+  const atMaturity = payoff > 0 ? nom * payoff : null;
+  const ganancia   = atMaturity != null ? atMaturity - gross : null;
+  const retorno    = atMaturity != null && gross > 0 ? (atMaturity / gross - 1) * 100 : null;
+
+  const fmtM = (v, d=2) => v != null ? `$${Number(v).toLocaleString('es-AR',{minimumFractionDigits:d,maximumFractionDigits:d})}` : '—';
+  const fmtN = v => Number(v).toLocaleString('es-AR',{minimumFractionDigits:0,maximumFractionDigits:2});
+  const fmtPct = v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2).replace('.',',') + '%' : '—';
+  const fmtPctRate = v => (v * 100).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}) + '%';
+
+  const sRow = (label, val, cls='') =>
+    `<div class="bcc-sum-row"><span class="bcc-sum-label">${label}</span><span class="bcc-sum-val ${cls}">${val}</span></div>`;
+
+  let col1, col2;
+  if (_ltrCalcMode === 'amount') {
+    col1 = [
+      sRow('Monto bruto ingresado',          fmtM(gross)),
+      sRow(`Comisión ${fmtPctRate(commRate)}`, fmtM(commission), 'neg'),
+      sRow(`Impuestos ${fmtPctRate(taxRate)}`, fmtM(taxes),      'neg'),
+      sRow(`Costos ${fmtPctRate(costRate)}`,   fmtM(totalCosts), 'neg'),
+      sRow('Monto neto aplicado a compra',   fmtM(net)),
+    ];
+    col2 = [
+      sRow('Nominales estimados',      fmtN(nom),                   'accent'),
+      sRow('Precio actual',            fmtM(price, 4)),
+      sRow('Precio al vencimiento',    payoff > 0 ? fmtM(payoff, 4) : '—'),
+      sRow('Monto estimado al venc.',  atMaturity != null ? fmtM(atMaturity) : '—', 'pos'),
+      sRow('Ganancia estimada',        ganancia != null ? fmtM(ganancia) : '—', ganancia != null && ganancia >= 0 ? 'pos' : 'neg'),
+      sRow('Retorno estimado',         fmtPct(retorno), retorno != null && retorno >= 0 ? 'pos' : 'neg'),
+    ];
+  } else {
+    col1 = [
+      sRow('Nominales ingresados',       fmtN(nom),                   'accent'),
+      sRow('Monto neto de compra',       fmtM(net)),
+      sRow(`Comisión ${fmtPctRate(commRate)}`, fmtM(commission), 'neg'),
+      sRow(`Impuestos ${fmtPctRate(taxRate)}`, fmtM(taxes),      'neg'),
+      sRow('Monto bruto total',          fmtM(gross)),
+    ];
+    col2 = [
+      sRow('Precio actual',            fmtM(price, 4)),
+      sRow('Precio al vencimiento',    payoff > 0 ? fmtM(payoff, 4) : '—'),
+      sRow('Monto estimado al venc.',  atMaturity != null ? fmtM(atMaturity) : '—', 'pos'),
+      sRow('Ganancia estimada',        ganancia != null ? fmtM(ganancia) : '—', ganancia != null && ganancia >= 0 ? 'pos' : 'neg'),
+      sRow('Retorno estimado',         fmtPct(retorno), retorno != null && retorno >= 0 ? 'pos' : 'neg'),
+    ];
+  }
+
+  const sumEl = document.querySelector('#ltr-calc-summary .bcc-card-body');
+  if (sumEl) {
+    sumEl.innerHTML = `<div class="bcc-sum-grid"><div>${col1.join('')}</div><div>${col2.join('')}</div></div>`;
+  }
+}
+
+function _ltrClearSummary() {
+  const sumEl = document.querySelector('#ltr-calc-summary .bcc-card-body');
+  if (sumEl) sumEl.innerHTML = `<p class="bcc-note">Ingresá monto o nominales para ver el resumen.</p>`;
 }

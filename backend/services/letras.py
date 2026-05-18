@@ -62,6 +62,19 @@ async def _fetch_prices() -> pd.Series:
         return pd.Series(dtype=float)
 
 
+async def _fetch_pct_changes() -> pd.Series:
+    """Variación diaria de precio para letras y bonos desde data912."""
+    try:
+        notes = await data912.get_arg_notes()
+        bonds = await data912.get_arg_bonds()
+        df = pd.concat([notes, bonds]).drop_duplicates(subset=["symbol"], keep="first")
+        df = df.dropna(subset=["symbol", "pct_change"])
+        return df.set_index("symbol")["pct_change"].astype(float)
+    except Exception as e:
+        logger.warning("_fetch_pct_changes failed: %s", e)
+        return pd.Series(dtype=float)
+
+
 def _load_xlsx() -> pd.DataFrame:
     path = _data_path() / "Letras Activas.xlsx"
     if not path.exists():
@@ -91,7 +104,11 @@ async def get_carry_table() -> tuple[list[dict], float]:
         logger.error(str(e))
         return [], 0.0
 
-    prices, mep = await _fetch_prices(), await _fetch_mep()
+    prices, pct_changes, mep = (
+        await _fetch_prices(),
+        await _fetch_pct_changes(),
+        await _fetch_mep(),
+    )
 
     carry = pd.DataFrame({
         "Ticker": df_xls["Ticker"].values,
@@ -99,6 +116,7 @@ async def get_carry_table() -> tuple[list[dict], float]:
         "payoff": df_xls["Valor Final"].values,
     })
     carry["bond_price"] = carry["Ticker"].map(prices)
+    carry["pct_change"] = carry["Ticker"].map(pct_changes)
 
     today = pd.Timestamp.today().normalize().date()
     exp_dates = pd.to_datetime(carry["expiration"])
@@ -183,9 +201,12 @@ async def get_carry_table() -> tuple[list[dict], float]:
 
     result = []
     for _, row in carry.iterrows():
+        pc = row.get("pct_change")
         result.append({
             "ticker": row["Ticker"],
             "precio": _fmt(row.get("bond_price")),
+            "payoff": round(float(row["payoff"]), 4) if pd.notna(row.get("payoff")) else None,
+            "pct_change": round(float(pc), 2) if (pc is not None and pd.notna(pc) and np.isfinite(float(pc))) else None,
             "dias": int(row["days"]) if pd.notna(row["days"]) else None,
             "tna": round(float(row["tna"]) * 100, 2) if pd.notna(row.get("tna")) else None,
             "tea": round(float(row["tea"]) * 100, 2) if pd.notna(row.get("tea")) else None,

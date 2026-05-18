@@ -111,6 +111,45 @@
 .bond-clickable { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; transition: opacity .1s; }
 .bond-clickable:hover { opacity: .75; }
 
+/* ── Price strip dentro de modal de letras ─────────────────────────── */
+.ltr-price-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.ltr-price-card {
+  background: var(--bt2-card2);
+  border: 1px solid var(--bt2-border);
+  border-radius: 4px;
+  padding: 12px 14px;
+  text-align: center;
+}
+.ltr-price-card-accent { border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.05); }
+.ltr-price-label {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--bt2-sub);
+  margin-bottom: 6px;
+}
+.ltr-price-val {
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--bt2-text);
+  font-variant-numeric: tabular-nums;
+}
+.ltr-price-val.green { color: var(--bt2-pos); }
+.ltr-price-val.neg   { color: var(--bt2-neg); }
+.ltr-price-note {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  color: var(--bt2-sub);
+  margin-top: 4px;
+}
+
 /* ─── Dashboard ──────────────────────────────────────────────────────────── */
 .dash-kpi-row   { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
 .dash-tasas-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
