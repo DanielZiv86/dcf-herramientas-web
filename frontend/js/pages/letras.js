@@ -621,18 +621,18 @@ function _letraCalcUpdate() {
     gross = parseFloat(document.getElementById('ltr-input-amount')?.value) || 0;
     if (!gross) { _ltrClearSummary(); return; }
     net = gross / (1 + costRate);
-    nom = net / price;
+    nom = (net / price) * 100;          // precio en base 100 → VN = (neto / precio) × 100
   } else {
     nom = parseFloat(document.getElementById('ltr-input-nom')?.value) || 0;
     if (!nom) { _ltrClearSummary(); return; }
-    net   = nom * price;
+    net   = nom * price / 100;          // base 100: neto = VN × precio / 100
     gross = net * (1 + costRate);
   }
 
   const commission = net * commRate;
   const taxes      = net * taxRate;
   const totalCosts = commission + taxes;
-  const atMaturity = payoff > 0 ? nom * payoff : null;
+  const atMaturity = payoff > 0 ? nom * payoff / 100 : null;  // base 100: VN × payoff / 100
   const ganancia   = atMaturity != null ? atMaturity - gross : null;
   const retorno    = atMaturity != null && gross > 0 ? (atMaturity / gross - 1) * 100 : null;
 
