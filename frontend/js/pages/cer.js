@@ -40,8 +40,11 @@ let _cerPageData = [];
       <div class="cer-note-strip">
         <span style="color:#34d399">ℹ</span>
         Los rendimientos son <strong>TIR real sobre CER (IPC INDEC)</strong>. Motor propio: precio_real = precio / index_ratio,
-        donde index_ratio = CER(ref_settle) / CER(ref_emisión).
-        Fuente precios: data912.com · Fuente CER: datos.gob.ar + argentinadatos.com.
+        donde index_ratio = CER(ref_settle) / CER(ref_emisión). Fuente: data912.com · datos.gob.ar + argentinadatos.com.
+        <span style="color:var(--bt2-accent);margin-left:8px">&#9679;</span>
+        Instrumentos con &lt;45 días al vencimiento
+        operan como <strong>descuento de corto plazo</strong> — su pago ya está determinado y no reflejan un real yield CER.
+        Se muestran atenuados y se excluyen de los KPIs.
       </div>
 
     </div>`;
@@ -63,12 +66,14 @@ let _cerPageData = [];
   }
 };
 
-// ── KPIs superiores por tramo ──────────────────────────────────────────────
+// ── KPIs superiores por tramo — excluye near_maturity ─────────────────────
 function _cerRenderKPIs(data) {
   const el = document.getElementById('cer-kpis');
   if (!el) return;
 
-  const valid = (data || []).filter(d => d.tir_real != null && d.duration != null);
+  // near_maturity se excluye de KPIs: su TIR no refleja un real yield CER
+  const valid = (data || []).filter(d => d.tir_real != null && d.duration != null && !d.near_maturity);
+  const nearCount = (data || []).filter(d => d.near_maturity).length;
   if (!valid.length) { el.innerHTML = ''; return; }
 
   const short  = valid.filter(d => d.duration < 1);
@@ -92,7 +97,8 @@ function _cerRenderKPIs(data) {
     medium.length ? kpi('CER MEDIO', fmtTIR(avg(medium)), tirCls(avg(medium)), '1 – 2.5 AÑOS') : '',
     long_.length  ? kpi('CER LARGO', fmtTIR(avg(long_)),  tirCls(avg(long_)),  'DUR &ge; 2.5A') : '',
     best          ? kpi('MEJOR TIR', fmtTIR(best.tir_real), 'bt2-pos', best.ticker) : '',
-    kpi('ACTIVOS', valid.length + '', '', 'CON TIR'),
+    kpi('CER ACTIVOS', valid.length + '', '', 'CON TIR REAL'),
+    nearCount > 0 ? kpi('VENCIENDO', nearCount + '', 'bt2-sub', '&lt; 45 DÍAS') : '',
   ].filter(Boolean).join('');
 }
 
@@ -159,22 +165,30 @@ function _cerRenderTable(data) {
   </tr>`;
 
   const rows = sorted.map(d => {
+    const nm     = !!d.near_maturity;
     const volPct = d.volumen ? Math.round((d.volumen / maxVol) * 100) : 0;
     const volCell = `<div class="cer-vol-cell">
       <span>${fmtVol(d.volumen)}</span>
       <div class="cer-vol-bar-bg"><div class="cer-vol-bar-fill" style="width:${volPct}%"></div></div>
     </div>`;
+    // near_maturity: fila atenuada, ticker en naranja, TIR sin heatmap
+    const rowStyle = nm ? ' style="opacity:0.55"' : '';
+    const tkClass  = nm ? 'bt2-td-ticker cer-tk-nm bond-clickable' : 'bt2-td-ticker cer-tk bond-clickable';
+    const tkBadge  = nm ? ` <span class="cer-nm-badge" title="Pago determinado, opera como descuento de corto plazo">VENC.</span>` : '';
+    const tirCell  = nm
+      ? `<td class="bt2-td-num bt2-sub" style="font-weight:700">${fmtPct(d.tir_real)}</td>`
+      : `<td class="bt2-td-num ${tirCls(d.tir_real)}" style="font-weight:700"><span class="${tirTxtC(d.tir_real)}">${fmtPct(d.tir_real)}</span></td>`;
     return `
-    <tr class="bt2-row">
-      <td class="bt2-td-ticker cer-tk bond-clickable"
+    <tr class="bt2-row"${rowStyle}>
+      <td class="${tkClass}"
           onclick="_openCerDetail('${d.ticker}')"
-          title="Click para ver detalle">${d.ticker}</td>
+          title="Click para ver detalle">${d.ticker}${tkBadge}</td>
       <td class="bt2-td-num cer-venc">${fmtDate(d.vencimiento)}</td>
       <td class="bt2-td-num cer-dias">${fmtDias(d.dias)}</td>
       <td class="bt2-td-num">${fmtPx(d.precio)}</td>
       <td class="bt2-td-num ${parCls(d.paridad)}">${fmtPar(d.paridad)}</td>
       <td class="bt2-td-num bt2-sub">${fmtPct(d.tna)}</td>
-      <td class="bt2-td-num ${tirCls(d.tir_real)}" style="font-weight:700"><span class="${tirTxtC(d.tir_real)}">${fmtPct(d.tir_real)}</span></td>
+      ${tirCell}
       <td class="bt2-td-num bt2-sub">${fmtPct(d.tem)}</td>
       <td class="bt2-td-num bt2-sub">${fmtDur(d.duration)}</td>
       <td class="bt2-td-num bt2-sub" style="min-width:80px">${volCell}</td>
@@ -190,10 +204,14 @@ function _cerRenderChart(data) {
   const el = document.getElementById('cer-chart');
   if (!el) return;
 
-  const valid = (data || [])
+  // Separar: instrumentos CER "reales" vs near_maturity (operan como descuento)
+  const allValid = (data || [])
     .filter(d => d.tir_real != null && d.duration != null && d.duration > 0
-                 && Math.abs(d.tir_real) < 50)   // excluir outliers extremos (ej: TX26 si cotiza mal)
+                 && Math.abs(d.tir_real) < 50)
     .sort((a, b) => a.duration - b.duration);
+
+  const valid = allValid.filter(d => !d.near_maturity);   // curva principal
+  const nearM = allValid.filter(d =>  d.near_maturity);   // serie secundaria
 
   if (!valid.length) {
     dcfCharts.disposeChart('cer-chart');
@@ -273,7 +291,9 @@ function _cerRenderChart(data) {
       splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)', type: 'dashed' } },
     },
     series: [
+      // Curva principal CER — emerald
       {
+        name: 'CER Real',
         type: 'scatter',
         data: valid.map(d => [d.duration, d.tir_real]),
         symbolSize: 10,
@@ -287,7 +307,55 @@ function _cerRenderChart(data) {
           formatter: p => valid[p.dataIndex]?.ticker || '',
           position: 'top', distance: 6,
         },
+        tooltip: {
+          formatter: (p) => {
+            const d = valid[p.dataIndex];
+            if (!d) return '';
+            const row = (l, v) => `<div style="display:flex;justify-content:space-between;gap:16px;margin-top:2px"><span style="color:#7a8fa6">${l}</span><span>${v}</span></div>`;
+            let h = `<div style="font-family:${mono};font-size:11.5px;min-width:190px">`;
+            h += `<div style="font-size:13px;font-weight:700;margin-bottom:6px;color:#34d399">${d.ticker}</div>`;
+            h += row('TIR Real', `<span style="color:${d.tir_real >= 0 ? '#22c55e' : '#ef4444'}">${fmtT(d.tir_real)}</span>`);
+            h += row('Precio', fmtP(d.precio));
+            h += row('Paridad', d.paridad != null ? d.paridad.toFixed(2).replace('.', ',') + '%' : '—');
+            h += row('Duration', d.duration != null ? d.duration.toFixed(2).replace('.', ',') : '—');
+            h += row('Venc.', fmtD(d.vencimiento));
+            return h + '</div>';
+          },
+        },
       },
+      // Near-maturity — gris, serie separada, no forma parte de la curva CER
+      ...(nearM.length ? [{
+        name: 'Venciendo',
+        type: 'scatter',
+        data: nearM.map(d => [d.duration, d.tir_real]),
+        symbolSize: 8,
+        symbol: 'diamond',
+        clip: false,
+        itemStyle: { color: 'transparent', borderColor: '#64748b', borderWidth: 1.5 },
+        label: {
+          show: true,
+          fontFamily: mono, fontSize: 8, fontWeight: 600,
+          color: '#64748b',
+          textBorderColor: 'rgba(8,17,28,0.9)', textBorderWidth: 2,
+          formatter: p => nearM[p.dataIndex]?.ticker || '',
+          position: 'top', distance: 6,
+        },
+        tooltip: {
+          formatter: (p) => {
+            const d = nearM[p.dataIndex];
+            if (!d) return '';
+            const row = (l, v) => `<div style="display:flex;justify-content:space-between;gap:16px;margin-top:2px"><span style="color:#7a8fa6">${l}</span><span>${v}</span></div>`;
+            let h = `<div style="font-family:${mono};font-size:11.5px;min-width:200px">`;
+            h += `<div style="font-size:13px;font-weight:700;margin-bottom:4px;color:#94a3b8">${d.ticker}</div>`;
+            h += `<div style="font-size:.68rem;color:#f97316;margin-bottom:6px">Pago determinado — opera como descuento de c/p</div>`;
+            h += row('Precio', fmtP(d.precio));
+            h += row('Paridad', d.paridad != null ? d.paridad.toFixed(2).replace('.', ',') + '%' : '—');
+            h += row('Días', d.dias != null ? d.dias.toString() : '—');
+            return h + '</div>';
+          },
+        },
+      }] : []),
+      // Trendline curva principal
       ...(trend ? [{
         type: 'line',
         data: trend,
@@ -296,7 +364,16 @@ function _cerRenderChart(data) {
         tooltip: { show: false }, silent: true,
       }] : []),
     ],
-    legend: { show: false },
+    legend: {
+      show: nearM.length > 0,
+      bottom: 0,
+      textStyle: { color: '#64748b', fontFamily: mono, fontSize: 10 },
+      itemWidth: 10, itemHeight: 10,
+      data: [
+        { name: 'CER Real',   icon: 'circle',  itemStyle: { borderColor: '#34d399', color: 'transparent', borderWidth: 2 } },
+        { name: 'Venciendo',  icon: 'diamond', itemStyle: { borderColor: '#64748b', color: 'transparent', borderWidth: 1.5 } },
+      ],
+    },
   });
 
   new ResizeObserver(() => chart.resize()).observe(el);
@@ -320,6 +397,7 @@ async function _openCerDetail(ticker) {
   const mi = (label, val, style = '') =>
     `<div class="bcc-meta-item"><span class="bcc-meta-label">${label}</span><span class="bcc-meta-val" style="${style}">${val}</span></div>`;
 
+  const isNM    = !!d.near_maturity;
   const isShort = d.dias != null && d.dias < 30;
 
   const el = document.createElement('div');
@@ -331,7 +409,7 @@ async function _openCerDetail(ticker) {
     <div class="bcc-modal" style="max-width:600px">
       <div class="bcc-header">
         <div>
-          <span class="bcc-title cer-tk">${d.ticker}</span>
+          <span class="bcc-title ${isNM ? 'cer-tk-nm' : 'cer-tk'}">${d.ticker}${isNM ? ' <span class="cer-nm-badge">VENC.</span>' : ''}</span>
           <span class="bcc-subtitle" id="cer-detail-tipo">BONO CER — CARGANDO…</span>
         </div>
         <button class="bcc-close" onclick="document.getElementById('cer-detail-overlay').remove()">✕</button>
@@ -351,14 +429,28 @@ async function _openCerDetail(ticker) {
           ${d.var_dia != null ? mi('% DÍA', fT(d.var_dia), d.var_dia >= 0 ? 'color:#22c55e' : 'color:#ef4444') : ''}
         </div>
 
-        ${isShort ? `
-        <div class="bcc-card" style="border-color:rgba(249,115,22,0.25)">
-          <div class="bcc-card-title" style="color:var(--bt2-accent)">⚠ TRAMO CORTO</div>
+        ${isNM ? `
+        <div class="bcc-card" style="border-color:rgba(249,115,22,0.35)">
+          <div class="bcc-card-title" style="color:var(--bt2-accent)">INSTRUMENTO EN ZONA DE VENCIMIENTO</div>
           <div class="bcc-card-body">
-            <p class="bcc-note">El CER aplicable puede estar prácticamente determinado a esta altura del plazo.
-            La TIR refleja más la tasa efectiva de convergencia a vencimiento que un rendimiento real futuro.</p>
+            <p class="bcc-note" style="line-height:1.7">
+              Con <strong>${d.dias} días</strong> al vencimiento, el pago nominal ya está esencialmente determinado
+              porque el CER en la fecha de referencia de madurez (<code>venc. - 10bdays</code>) es conocido o muy estimable.
+              El instrumento opera como <strong>descuento de corto plazo</strong> (renta fija), no como CER real yield.
+            </p>
+            <p class="bcc-note" style="margin-top:6px;color:var(--bt2-sub)">
+              Se excluye de los KPIs de la curva CER y del tramo de tendencia para no distorsionar el análisis
+              de real yield a mayor plazo.
+            </p>
           </div>
-        </div>` : ''}
+        </div>` : (isShort ? `
+        <div class="bcc-card" style="border-color:rgba(249,115,22,0.25)">
+          <div class="bcc-card-title" style="color:var(--bt2-accent)">TRAMO CORTO</div>
+          <div class="bcc-card-body">
+            <p class="bcc-note">El ajuste CER aplicable puede estar prácticamente determinado.
+            La TIR refleja más la tasa efectiva de convergencia que un rendimiento real futuro.</p>
+          </div>
+        </div>` : '')}
 
         <!-- Flujo de fondos — se rellena async -->
         <div class="bcc-card" id="cer-detail-flows">

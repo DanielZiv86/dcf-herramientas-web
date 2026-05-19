@@ -607,6 +607,20 @@
 
 /* ── Bonos CER ────────────────────────────────────────────────────────────── */
 .cer-tk      { color: #34d399; font-weight: 700; }
+.cer-tk-nm   { color: #64748b; font-weight: 700; }   /* near-maturity: gris */
+.cer-nm-badge {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #f97316;
+  background: rgba(249,115,22,0.12);
+  border: 1px solid rgba(249,115,22,0.30);
+  vertical-align: middle;
+}
 .cer-th-hl   { color: var(--bt2-cer, #34d399) !important; }
 .cer-th-tna  { color: var(--bt2-sub) !important; }
 .cer-venc    { font-size: 0.72rem; }

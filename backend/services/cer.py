@@ -42,6 +42,12 @@ URL_DATOSGOBAR_CER    = (
 URL_IOL_BONOS  = "https://iol.invertironline.com/mercado/cotizaciones/argentina/bonos/todos"
 URL_IOL_TITPUB = "https://iol.invertironline.com/mercado/cotizaciones/argentina/titulospublicos/todos"
 
+# Umbral "near-maturity": instrumentos con menos de este numero de dias al vencimiento
+# ya tienen el pago esencialmente determinado (CER en ref_maturity es conocido o casi).
+# El mercado los opera como discount notes (TNA simple), no como real yield CER.
+# Se marcan con near_maturity=True → excluded from KPI averages y curva principal.
+NEAR_MATURITY_DIAS = 45
+
 CER_TICKERS = [
     # Bonos CER con cupón (BONCER)
     "TX26", "TX28", "TX29", "TX31", "TXM8", "TXM9",
@@ -665,19 +671,20 @@ async def get_cer_table_v2() -> list[dict]:
             volumen_val = None
 
         rows.append({
-            "ticker":      ticker,
-            "tipo":        tipo,
-            "precio":      round(float(price), 4),
-            "tir_real":    tir_pct,
-            "tir_nominal": None,
-            "duration":    dur_val,
-            "vencimiento": maturity_date.strftime("%Y-%m-%d"),
-            "var_dia":     var_val,
-            "dias":        dias,
-            "paridad":     paridad_val,
-            "tna":         tna_val,
-            "tem":         tem_val,
-            "volumen":     volumen_val,
+            "ticker":        ticker,
+            "tipo":          tipo,
+            "precio":        round(float(price), 4),
+            "tir_real":      tir_pct,
+            "tir_nominal":   None,
+            "duration":      dur_val,
+            "vencimiento":   maturity_date.strftime("%Y-%m-%d"),
+            "var_dia":       var_val,
+            "dias":          dias,
+            "paridad":       paridad_val,
+            "tna":           tna_val,
+            "tem":           tem_val,
+            "volumen":       volumen_val,
+            "near_maturity": dias <= NEAR_MATURITY_DIAS,
         })
 
         logger.info(
@@ -1113,20 +1120,24 @@ async def get_cer_table_v3() -> list[dict]:
         except Exception:
             pass
 
+        dias_val = (maturity_date - today).days
         rows.append({
-            "ticker":      ticker,
-            "tipo":        tipo,
-            "precio":      round(float(price), 4),
-            "tir_real":    tir_pct,
-            "tir_nominal": None,
-            "duration":    dur_val,
-            "vencimiento": maturity_date.strftime("%Y-%m-%d"),
-            "var_dia":     var_val,
-            "dias":        (maturity_date - today).days,
-            "paridad":     paridad_val,
-            "tna":         tna_val,
-            "tem":         tem_val,
-            "volumen":     volumen_val,
+            "ticker":        ticker,
+            "tipo":          tipo,
+            "precio":        round(float(price), 4),
+            "tir_real":      tir_pct,
+            "tir_nominal":   None,
+            "duration":      dur_val,
+            "vencimiento":   maturity_date.strftime("%Y-%m-%d"),
+            "var_dia":       var_val,
+            "dias":          dias_val,
+            "paridad":       paridad_val,
+            "tna":           tna_val,
+            "tem":           tem_val,
+            "volumen":       volumen_val,
+            # near_maturity: el pago esta esencialmente determinado.
+            # El mercado lo opera como descuento simple, no como real yield CER.
+            "near_maturity": dias_val <= NEAR_MATURITY_DIAS,
         })
 
         logger.debug("[cer_v3] %-8s | ratio=%.4f | pr=%.4f | TIR=%s%%",
