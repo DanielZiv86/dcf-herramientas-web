@@ -1,8 +1,12 @@
 """DCF Herramientas Web — FastAPI backend."""
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import sys
+from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -24,6 +28,79 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+# ── Market refresh scheduler ──────────────────────────────────────────────────
+
+async def _do_cache_refresh(fire_time: datetime) -> None:
+    """Invalida y re-precalienta los caches de datos de mercado."""
+    from cache import invalidate
+    from services import data912 as d912
+    from services import bonds as bond_svc
+    from services import dashboard as dash_svc
+    from services import cer as cer_svc
+    from services.market_hours import set_last_refresh
+
+    logger.info("Refresh de mercado iniciado: %s ART", fire_time.strftime("%H:%M:%S"))
+
+    # Invalidar datos de precios (no los cashflows — el Excel no cambia intraday)
+    for name in [
+        "d912_bonds", "d912_corp", "d912_notes", "d912_stocks", "d912_cedears",
+        "hd_table", "bopreal_table", "cer_table", "dashboard_macro",
+    ]:
+        invalidate(name)
+
+    # Pre-calentar en paralelo para que el primer request después del refresh sea rápido
+    results = await asyncio.gather(
+        d912.get_arg_bonds(),
+        d912.get_arg_notes(),
+        d912.get_arg_stocks(),
+        bond_svc.get_hd_table("MEP"),
+        dash_svc.load_macro(),
+        cer_svc.get_cer_table(),
+        return_exceptions=True,
+    )
+
+    errors = [r for r in results if isinstance(r, Exception)]
+    if errors:
+        logger.warning("Pre-calentamiento con %d errores: %s", len(errors), errors)
+
+    set_last_refresh(fire_time)
+    logger.info("Refresh completado a las %s ART", fire_time.strftime("%H:%M:%S"))
+
+
+async def _refresh_scheduler() -> None:
+    """Loop que duerme hasta el próximo tick de mercado y dispara el refresh."""
+    from services.market_hours import next_refresh_after, is_trading_day, ART
+
+    logger.info("Scheduler de mercado iniciado")
+
+    while True:
+        now = datetime.now(ART)
+        nxt = next_refresh_after(now)
+
+        if nxt is None:
+            await asyncio.sleep(3600)
+            continue
+
+        wait_secs = max(1.0, (nxt - now).total_seconds())
+        logger.info("Próximo refresh de mercado: %s ART (en %.0fs)", nxt.strftime("%H:%M"), wait_secs)
+        await asyncio.sleep(wait_secs)
+
+        fire = datetime.now(ART)
+        if is_trading_day(fire.date()):
+            await _do_cache_refresh(fire)
+        # Si no es día hábil (holiday detectado tarde), el loop re-calcula el próximo tick
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(_refresh_scheduler())
+    yield
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+
 # ── App ──────────────────────────────────────────────────────────────────────
 
 app = FastAPI(
@@ -31,6 +108,7 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/api/docs" if settings.debug else None,
     redoc_url=None,
+    lifespan=lifespan,
 )
 
 # CORS — allow configured origins + any *.github.io subdomain
@@ -120,6 +198,27 @@ async def api_auth_me(dcf_session: _Optional[str] = _Cookie(default=None)):
     from auth import decode_token
     payload = decode_token(dcf_session)
     return {"email": payload["sub"], "role": payload.get("role", "user")}
+
+
+# ── Market status ────────────────────────────────────────────────────────────
+
+@app.get("/api/status", include_in_schema=False)
+async def market_status_endpoint(
+    request: Request,
+    dcf_session: _Optional[str] = _Cookie(default=None),
+):
+    if not settings.dev_bypass_auth:
+        if not dcf_session:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=401)
+        try:
+            from auth import decode_token
+            decode_token(dcf_session)
+        except Exception:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=401)
+    from services.market_hours import get_status
+    return get_status()
 
 
 # ── Cache status (admin) ──────────────────────────────────────────────────────

@@ -96,6 +96,7 @@ const api = {
     me:     () => fetch(API_BASE + '/auth/me', { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null),
     logout: () => fetch(API_BASE + '/auth/logout', { credentials: 'include' }).then(() => { window.location.href = BASE_PATH + '/login.html'; }),
   },
+  status: () => apiFetch('/status'),
 };
 
 window.api = api;

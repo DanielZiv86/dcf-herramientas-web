@@ -42,3 +42,4 @@ python-dotenv==1.0.1
 
 # --- Scheduling / timezone ---
 holidays==0.55
+tzdata==2024.2      # zona horaria America/Argentina/Buenos_Aires en contenedores sin /usr/share/zoneinfo
