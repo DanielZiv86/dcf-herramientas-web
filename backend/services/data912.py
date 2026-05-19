@@ -7,6 +7,8 @@ from typing import Any
 import httpx
 import pandas as pd
 
+from cache import async_cached
+
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://data912.com"
@@ -155,22 +157,27 @@ async def get_mep_value(prefer: str = "mark") -> float:
     raise ValueError(f"Cannot extract MEP from {d}")
 
 
+@async_cached("d912_bonds", ttl=30)
 async def get_arg_bonds() -> pd.DataFrame:
     return await _to_df("/live/arg_bonds")
 
 
+@async_cached("d912_corp", ttl=30)
 async def get_arg_corp() -> pd.DataFrame:
     return await _to_df("/live/arg_corp")
 
 
+@async_cached("d912_notes", ttl=30)
 async def get_arg_notes() -> pd.DataFrame:
     return await _to_df("/live/arg_notes")
 
 
+@async_cached("d912_stocks", ttl=30)
 async def get_arg_stocks() -> pd.DataFrame:
     return await _to_df("/live/arg_stocks")
 
 
+@async_cached("d912_cedears", ttl=30)
 async def get_arg_cedears() -> pd.DataFrame:
     return await _to_df("/live/arg_cedears", symbol_field="ticker")
 

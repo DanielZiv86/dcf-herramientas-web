@@ -14,6 +14,7 @@ import httpx
 import numpy as np
 import pandas as pd
 
+from cache import async_cached, cached
 from config import settings
 from services import data912
 
@@ -138,6 +139,7 @@ def macaulay_duration(cashflows: np.ndarray, dates_full: pd.DatetimeIndex, y: fl
 
 # ── Cashflow loading ──────────────────────────────────────────────────────────
 
+@cached("cashflows", ttl=3600)
 def load_cashflows(filename: str) -> pd.DataFrame:
     path = _data_path() / filename
     if not path.exists():
@@ -280,6 +282,7 @@ def _compute_metrics(cf: pd.DataFrame, base_tickers: list[str], prices: dict[str
 
 # ── Public functions ─────────────────────────────────────────────────────────
 
+@async_cached("hd_table", ttl=60)
 async def get_hd_table(mercado: str = "MEP") -> list[dict]:
     """Returns HD bonds table for a given market, with pct_change and volume."""
     try:
@@ -304,6 +307,7 @@ async def get_hd_table(mercado: str = "MEP") -> list[dict]:
     return rows
 
 
+@async_cached("bopreal_table", ttl=60)
 async def get_bopreal_table(mercado: str = "MEP") -> list[dict]:
     """Returns BOPREAL bonds table using the correct data912 ticker mapping."""
     try:

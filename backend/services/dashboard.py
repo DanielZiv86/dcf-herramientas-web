@@ -9,6 +9,7 @@ import httpx
 import numpy as np
 import pandas as pd
 
+from cache import async_cached
 from services import data912, yahoo
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,7 @@ def _safe_float(d: dict, *keys) -> Optional[float]:
 
 # ── Macro ─────────────────────────────────────────────────────────────────────
 
+@async_cached("dashboard_macro", ttl=30)
 async def load_macro() -> dict[str, Any]:
     results = await asyncio.gather(
         data912.get_mep_ccl_al30(),  # MEP & CCL from AL30/AL30D and AL30/AL30C

@@ -10,6 +10,7 @@ import httpx
 import numpy as np
 import pandas as pd
 
+from cache import async_cached
 from services import data912
 
 logger = logging.getLogger(__name__)
@@ -241,6 +242,7 @@ async def _cer_from_data912_only(prices: dict[str, float]) -> list[dict]:
 
 # ── Main table builder ────────────────────────────────────────────────────
 
+@async_cached("cer_table", ttl=120)
 async def get_cer_table() -> list[dict]:
     """CER bonds table: TIR/Duration from Bonistas, prices from data912."""
     import asyncio
