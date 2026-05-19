@@ -942,12 +942,219 @@ async def get_cer_table() -> list[dict]:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# V3: Motor rapido — usa BD BONOS CER.xlsx (datos estaticos pre-computados)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@cached("bd_cer_static", ttl=86400)
+def _load_bd_cer_static() -> dict[str, dict]:
+    """
+    Carga BD BONOS CER.xlsx (instrumentos + cashflows) en un dict indexado por ticker.
+
+    El BD almacena datos que son FIJOS para siempre:
+      - ref_base_date: 10 dias habiles antes de la fecha de emision
+      - cer_base_value: valor del CER en ref_base_date (ya ocurrio, no cambia)
+      - cashflows: cronograma contractual COMPLETO (sin filtrar por settle)
+
+    Solo variable por dia: CER(ref_settle) — se busca UNA VEZ para todos los instrumentos.
+    """
+    path = settings.data_path / BD_CER_FILE
+    if not path.exists():
+        raise FileNotFoundError(f"{BD_CER_FILE} no encontrado. Correr build_cer_bd.py primero.")
+
+    df_instr = pd.read_excel(path, sheet_name="instrumentos")
+    df_cf    = pd.read_excel(path, sheet_name="cashflows")
+
+    # Pre-indexar cashflows por ticker
+    cf_index: dict[str, list[tuple[date, float]]] = {}
+    for _, row in df_cf.iterrows():
+        tk = str(row["ticker"]).strip().upper()
+        d  = pd.Timestamp(row["fecha"]).date()
+        a  = float(row["monto"])
+        cf_index.setdefault(tk, []).append((d, a))
+
+    bd: dict[str, dict] = {}
+    for _, row in df_instr.iterrows():
+        tk = str(row["ticker"]).strip().upper()
+        bd[tk] = {
+            "tipo":           str(row.get("tipo", "")).strip().upper(),
+            "maturity_date":  pd.Timestamp(row["maturity_date"]).date(),
+            "ref_base_date":  pd.Timestamp(row["ref_base_date"]).date(),
+            "cer_base_value": float(row["cer_base_value"]),
+            "vn_base":        float(row.get("vn_base", 100.0) or 100.0),
+            "base_precio":    float(row.get("base_precio", 100.0) or 100.0),
+            "settle_rule":    str(row.get("settle_rule", "business_days_before:10")).strip(),
+            "cashflows":      cf_index.get(tk, []),
+        }
+
+    logger.info("[cer_v3] BD cargada: %d instrumentos | %d flujos totales",
+                len(bd), sum(len(v["cashflows"]) for v in bd.values()))
+    return bd
+
+
+@async_cached("cer_table_v3", ttl=120)
+async def get_cer_table_v3() -> list[dict]:
+    """
+    Motor v3 — rapido: usa BD BONOS CER.xlsx con datos estaticos pre-computados.
+
+    Ventaja vs v2:
+      - Sin generacion de cashflows por instrumento (pre-computados en BD)
+      - Un solo lookup de CER para todos los instrumentos (vs 28 busquedas en 8500 filas)
+      - Tiempo de computo por request: ~50ms vs ~300ms en v2
+
+    Flujo:
+      1. Cargar BD estatico (cache 24h, solo lectura de Excel local)
+      2. Fetch precios data912
+      3. Fetch CER(ref_settle) — UNA busqueda para todos los instrumentos
+      4. Para cada ticker: index_ratio = CER(ref_settle) / cer_base_stored → TIR
+    """
+    # 1. BD estatico (cached 24h)
+    try:
+        bd = _load_bd_cer_static()
+    except FileNotFoundError as e:
+        logger.warning("[cer_v3] BD no disponible (%s) — fallback a v2", e)
+        return await get_cer_table_v2()
+
+    # 2. Precios + CER en paralelo
+    cer_series, prices_raw = await asyncio.gather(
+        _fetch_cer_series(),
+        _fetch_cer_prices_with_change(),
+        return_exceptions=True,
+    )
+
+    if isinstance(cer_series, Exception):
+        logger.warning("[cer_v3] CER no disponible (%s) — fallback a v2", cer_series)
+        return await get_cer_table_v2()
+    if isinstance(prices_raw, Exception):
+        prices_raw = {}
+
+    # 3. UN SOLO ref_settle para todos los instrumentos
+    cal    = _ArgCal()
+    today  = date.today()
+    settle = cal.business_days_after(today, 2)
+
+    # settle_rule es identica para todos (business_days_before:10)
+    ref_settle = cal.get_reference_date("business_days_before:10", settle)
+    cer_settle = _cer_lookup(cer_series, ref_settle)
+
+    if cer_settle is None:
+        logger.warning("[cer_v3] Sin CER para ref_settle=%s — fallback a v2", ref_settle)
+        return await get_cer_table_v2()
+
+    logger.info("[cer_v3] ref_settle=%s  CER(ref_settle)=%.4f", ref_settle, cer_settle)
+
+    rows: list[dict] = []
+
+    for ticker, instr in bd.items():
+        maturity_date = instr["maturity_date"]
+        if maturity_date <= settle:
+            continue
+
+        # Precio de data912
+        price_info = prices_raw.get(ticker, {})
+        price      = price_info.get("price")
+        if not price or price <= 0:
+            continue
+
+        cer_base    = instr["cer_base_value"]
+        vn_base     = instr["vn_base"]
+        base_precio = instr["base_precio"]
+        tipo        = instr["tipo"]
+
+        # index_ratio: division de dos valores ya conocidos — O(1)
+        index_ratio = cer_settle / cer_base
+        precio_real = (price * (100.0 / base_precio)) / index_ratio
+        paridad_val = round(precio_real / vn_base * 100, 2)
+
+        # Cashflows futuros desde BD (solo filtrar, sin generar)
+        future_flows = [(d, a) for d, a in instr["cashflows"] if d > settle]
+        if not future_flows:
+            continue
+
+        # XIRR
+        cf_dates   = [pd.Timestamp(settle)] + [pd.Timestamp(d) for d, _ in future_flows]
+        cf_amounts = np.array([-precio_real] + [a for _, a in future_flows])
+        tir_real   = xirr(cf_amounts, pd.DatetimeIndex(cf_dates))
+
+        duration = np.nan
+        if not np.isnan(tir_real):
+            future_amounts = np.array([a for _, a in future_flows])
+            duration = macaulay_duration(future_amounts, pd.DatetimeIndex(cf_dates), tir_real)
+
+        tir_pct = round(float(tir_real * 100), 2) if not np.isnan(tir_real) else None
+        dur_val = round(float(duration), 2)         if not np.isnan(duration) else None
+
+        # TNA y TEM
+        tem_val = tna_val = None
+        if tir_pct is not None:
+            try:
+                tem_d   = (1.0 + tir_real) ** (1.0 / 12.0) - 1.0
+                tem_val = round(float(tem_d * 100), 2)
+                tna_val = round(float(tem_d * 12 * 100), 2)
+            except Exception:
+                pass
+
+        # var_dia y volumen
+        var_dia = price_info.get("pct_change")
+        var_val = None
+        if var_dia is not None:
+            try:
+                v = float(var_dia)
+                if np.isfinite(v):
+                    var_val = round(v, 2)
+            except Exception:
+                pass
+
+        vol_raw    = price_info.get("volume", 0.0) or 0.0
+        volumen_val = None
+        try:
+            vf = float(vol_raw)
+            if np.isfinite(vf) and vf > 0:
+                volumen_val = int(vf)
+        except Exception:
+            pass
+
+        rows.append({
+            "ticker":      ticker,
+            "tipo":        tipo,
+            "precio":      round(float(price), 4),
+            "tir_real":    tir_pct,
+            "tir_nominal": None,
+            "duration":    dur_val,
+            "vencimiento": maturity_date.strftime("%Y-%m-%d"),
+            "var_dia":     var_val,
+            "dias":        (maturity_date - today).days,
+            "paridad":     paridad_val,
+            "tna":         tna_val,
+            "tem":         tem_val,
+            "volumen":     volumen_val,
+        })
+
+        logger.debug("[cer_v3] %-8s | ratio=%.4f | pr=%.4f | TIR=%s%%",
+                     ticker, index_ratio, precio_real,
+                     f"{tir_real*100:.2f}" if not np.isnan(tir_real) else "NaN")
+
+    if not rows:
+        logger.warning("[cer_v3] Sin filas — fallback a v2")
+        return await get_cer_table_v2()
+
+    rows.sort(key=lambda x: x.get("vencimiento") or "9999")
+    logger.info("[cer_v3] Tabla lista: %d instrumentos", len(rows))
+    return rows
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Curva helper (shared by router)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def _get_best_table() -> list[dict]:
-    """Return v2 (motor propio) si existe metadata_cer.xlsx, sino Bonistas fallback."""
+    """
+    Prioridad: v3 (BD estatico, rapido) > v2 (metadata, lento) > Bonistas (scraping).
+    v3 requiere que exista BD BONOS CER.xlsx (generado con build_cer_bd.py).
+    """
+    bd_path   = settings.data_path / BD_CER_FILE
     meta_path = settings.data_path / META_CER_FILE
+    if bd_path.exists():
+        return await get_cer_table_v3()
     if meta_path.exists():
         return await get_cer_table_v2()
     return await get_cer_table()
