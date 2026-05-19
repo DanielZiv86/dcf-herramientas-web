@@ -43,15 +43,16 @@ URL_IOL_BONOS  = "https://iol.invertironline.com/mercado/cotizaciones/argentina/
 URL_IOL_TITPUB = "https://iol.invertironline.com/mercado/cotizaciones/argentina/titulospublicos/todos"
 
 CER_TICKERS = [
-    # Bonos CER con cupón
-    "TX26", "TX28", "TX29", "TX31",
+    # Bonos CER con cupón (BONCER)
+    "TX26", "TX28", "TX29", "TX31", "TXM8", "TXM9",
     # Bonos CER zero-coupon (TZX series)
-    "TZX26", "TZXO6", "TZXD6", "TZXM7", "TZXA7", "TZXY7",
-    "TZX27", "TZXS7", "TZXD7", "TZX28", "TZXS8", "TZXM9",
+    "TZX26", "TZXO6", "TZXD6",
+    "TZXM7", "TZXA7", "TZXY7", "TZX27",
+    "TZXS7", "TZXD7",
+    "TZXM8", "TZX28", "TZXS8",
+    "TZXM9",
     # LECERs (X series)
     "X15Y6", "X29Y6", "X31L6", "X30S6", "X30N6",
-    # Legacy TZX
-    "TZX28", "T2X5", "T2X6", "T2X7",
     # Amortizing (excluded from curve but needed for price fetch)
     "DICP", "PARP", "DIP0", "PAP0", "CUAP",
 ]
@@ -162,6 +163,9 @@ def _load_cer_metadata() -> pd.DataFrame:
         "Frecuencia Cupon": "FrecCupon",
         "FrecCupon": "FrecCupon",
         "VN Base": "VN_Base",
+        "VN_Base": "VN_Base",
+        "Base Precio": "Base_Precio",
+        "Base_Precio": "Base_Precio",
         "Moneda": "Moneda",
         "ISIN": "ISIN",
     }
@@ -453,7 +457,13 @@ async def _fetch_cer_prices_with_change() -> dict[str, dict]:
                     pct = None
             except Exception:
                 pct = None
-            result[tk] = {"price": price, "pct_change": pct}
+            try:
+                vol = float(str(row.get("v", 0) or 0).replace(",", "."))
+                if not np.isfinite(vol) or vol < 0:
+                    vol = 0.0
+            except Exception:
+                vol = 0.0
+            result[tk] = {"price": price, "pct_change": pct, "volume": vol}
     except Exception as e:
         logger.warning("[cer] data912 prices failed: %s", e)
 
@@ -483,7 +493,7 @@ async def _fetch_cer_prices_with_change() -> dict[str, dict]:
                             px = float(str(row.iloc[0][px_col]).replace(",", "."))
                             if px > 1000:
                                 px /= 100
-                            result[tk] = {"price": px, "pct_change": None}
+                            result[tk] = {"price": px, "pct_change": None, "volume": 0.0}
                             missing.remove(tk)
                         except Exception:
                             pass
@@ -555,6 +565,7 @@ async def get_cer_table_v2() -> list[dict]:
         coupon_rate   = float(meta.get("CouponRate", 0.0) or 0.0)
         freq          = int(meta.get("FrecCupon", 0) or 0)
         vn_base       = float(meta.get("VN_Base", 100.0) or 100.0)
+        price_base    = float(meta.get("Base_Precio", 100.0) or 100.0)
 
         if issue_date is None or maturity_date is None:
             logger.warning("[cer] %s — missing dates, skipping", ticker)
@@ -586,7 +597,8 @@ async def get_cer_table_v2() -> list[dict]:
                 continue
 
             index_ratio = cer_settle / cer_base
-            precio_real = price / index_ratio
+            # Normalizar a base 100 antes de deflactar (pricing_real.py convención)
+            precio_real = (price * (100.0 / price_base)) / index_ratio
         except Exception as e:
             logger.warning("[cer] %s — index_ratio error: %s", ticker, e)
             continue
@@ -625,14 +637,47 @@ async def get_cer_table_v2() -> list[dict]:
             except Exception:
                 pass
 
+        # días al vencimiento desde hoy (convención: trade_date, no settle)
+        dias = (maturity_date - today).days
+
+        # paridad = precio_real / vn_base * 100  (pricing_real.py, table_builder.py)
+        paridad_val = round(float(precio_real) / vn_base * 100, 2)
+
+        # TEM y TNA desde TIR real (table_builder.py, líneas 253–257)
+        # TEM = (1 + TIR)^(1/12) - 1   |   TNA = TEM × 12
+        tem_val = None
+        tna_val = None
+        if not np.isnan(tir_real):
+            try:
+                tem_d = (1.0 + tir_real) ** (1.0 / 12.0) - 1.0
+                tna_d = tem_d * 12.0
+                tem_val = round(float(tem_d * 100), 2)
+                tna_val = round(float(tna_d * 100), 2)
+            except Exception:
+                pass
+
+        # volumen de data912 (campo "v")
+        vol_raw = price_info.get("volume", 0.0) or 0.0
+        try:
+            vol_f = float(vol_raw)
+            volumen_val = int(vol_f) if np.isfinite(vol_f) and vol_f > 0 else None
+        except Exception:
+            volumen_val = None
+
         rows.append({
             "ticker":      ticker,
+            "tipo":        tipo,
             "precio":      round(float(price), 4),
             "tir_real":    tir_pct,
             "tir_nominal": None,
             "duration":    dur_val,
             "vencimiento": maturity_date.strftime("%Y-%m-%d"),
             "var_dia":     var_val,
+            "dias":        dias,
+            "paridad":     paridad_val,
+            "tna":         tna_val,
+            "tem":         tem_val,
+            "volumen":     volumen_val,
         })
 
         logger.info(
@@ -791,9 +836,10 @@ async def get_cer_table() -> list[dict]:
             if tk in ("DICP", "PARP"):
                 continue
             rows.append({
-                "ticker": tk, "precio": round(info["price"], 4),
+                "ticker": tk, "tipo": None, "precio": round(info["price"], 4),
                 "tir_real": None, "tir_nominal": None, "duration": None,
                 "vencimiento": None, "var_dia": info.get("pct_change"),
+                "dias": None, "paridad": None, "tna": None, "tem": None, "volumen": None,
             })
         rows.sort(key=lambda x: x["ticker"])
         return rows
@@ -867,20 +913,27 @@ async def get_cer_table() -> list[dict]:
 
         rows.append({
             "ticker":      ticker,
+            "tipo":        None,
             "precio":      round(float(price), 4)     if price    is not None else None,
             "tir_real":    round(tir_real, 2)          if tir_real is not None else None,
             "tir_nominal": round(tir_nom, 2)           if tir_nom  is not None else None,
             "duration":    duration,
             "vencimiento": str(maturity_raw)           if maturity_raw is not None else None,
             "var_dia":     round(var_dia, 2)           if var_dia  is not None else None,
+            "dias":        None,
+            "paridad":     None,
+            "tna":         None,
+            "tem":         None,
+            "volumen":     None,
         })
 
     if not rows:
         logger.warning("CER: Bonistas rows not parsed — prices-only fallback")
         rows = [
-            {"ticker": tk, "precio": round(info["price"], 4),
+            {"ticker": tk, "tipo": None, "precio": round(info["price"], 4),
              "tir_real": None, "tir_nominal": None, "duration": None,
-             "vencimiento": None, "var_dia": info.get("pct_change")}
+             "vencimiento": None, "var_dia": info.get("pct_change"),
+             "dias": None, "paridad": None, "tna": None, "tem": None, "volumen": None}
             for tk, info in prices.items() if tk not in ("DICP", "PARP")
         ]
 
@@ -893,9 +946,9 @@ async def get_cer_table() -> list[dict]:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def _get_best_table() -> list[dict]:
-    """Return v2 if Excels are available, otherwise Bonistas."""
-    xl_path = settings.data_path / BD_CER_FILE
-    if xl_path.exists():
+    """Return v2 (motor propio) si existe metadata_cer.xlsx, sino Bonistas fallback."""
+    meta_path = settings.data_path / META_CER_FILE
+    if meta_path.exists():
         return await get_cer_table_v2()
     return await get_cer_table()
 
@@ -907,3 +960,99 @@ async def get_cer_curva() -> list[dict]:
         for r in rows
         if r["duration"] is not None and r["tir_real"] is not None
     ]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Detalle de instrumento: metadata + cashflows (para modal de UI)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_TIPO_DISPLAY: dict[str, str] = {
+    "LECER":          "LECER",
+    "BONCER_ZC":      "BONCER ZC",
+    "BONCER_COUPON":  "BONCER",
+    "BONCER_AMORT":   "BONCER AMORT",
+}
+
+
+async def get_cer_instrumento(ticker: str) -> dict:
+    """
+    Devuelve metadata + cashflows contractuales para un ticker CER.
+    Usado por el modal de detalle en la UI.
+    """
+    ticker = ticker.strip().upper()
+    try:
+        meta_df = _load_cer_metadata()
+    except (FileNotFoundError, ValueError) as e:
+        return {"error": f"Metadata no disponible: {e}"}
+
+    rows = meta_df[meta_df["Ticker"] == ticker]
+    if rows.empty:
+        return {"error": f"Ticker {ticker} no encontrado en metadata"}
+
+    meta       = rows.iloc[0]
+    tipo       = str(meta.get("Tipo", "")).strip().upper()
+    issue_date = meta["FechaEmision"].date()  if pd.notna(meta["FechaEmision"])     else None
+    mat_date   = meta["FechaVencimiento"].date() if pd.notna(meta["FechaVencimiento"]) else None
+    coupon     = float(meta.get("CouponRate", 0.0) or 0.0)
+    freq       = int(meta.get("FrecCupon", 0) or 0)
+    vn_base    = float(meta.get("VN_Base", 100.0) or 100.0)
+
+    if issue_date is None or mat_date is None:
+        return {"error": f"Fechas incompletas para {ticker}"}
+
+    cal    = _ArgCal()
+    today  = date.today()
+    settle = cal.business_days_after(today, 2)
+
+    flows = _build_real_cashflows(
+        tipo=tipo, issue_date=issue_date, maturity_date=mat_date,
+        coupon_rate=coupon, freq_per_year=freq,
+        vn_base=vn_base, settlement=settle,
+    )
+
+    # Intentar obtener index_ratio desde la serie CER para mostrar en el modal
+    index_ratio_val = None
+    precio_real_val = None
+    try:
+        cer_series, prices_raw = await asyncio.gather(
+            _fetch_cer_series(),
+            _fetch_cer_prices_with_change(),
+            return_exceptions=True,
+        )
+        if not isinstance(cer_series, Exception) and not isinstance(prices_raw, Exception):
+            base_rule   = str(meta.get("CER_BaseDate_Rule",   "business_days_before:10")).strip()
+            settle_rule = str(meta.get("CER_SettleDate_Rule", "business_days_before:10")).strip()
+            ref_base   = cal.get_reference_date(base_rule,   issue_date)
+            ref_settle = cal.get_reference_date(settle_rule, settle)
+            cer_b = _cer_lookup(cer_series, ref_base)
+            cer_s = _cer_lookup(cer_series, ref_settle)
+            if cer_b and cer_s and cer_b > 0:
+                index_ratio_val = round(cer_s / cer_b, 6)
+                price = (prices_raw.get(ticker) or {}).get("price")
+                if price and price > 0:
+                    precio_real_val = round(price / index_ratio_val, 4)
+    except Exception:
+        pass
+
+    return {
+        "ticker":          ticker,
+        "tipo":            tipo,
+        "tipo_display":    _TIPO_DISPLAY.get(tipo, tipo),
+        "fecha_emision":   issue_date.strftime("%Y-%m-%d"),
+        "fecha_vencimiento": mat_date.strftime("%Y-%m-%d"),
+        "dias":            (mat_date - today).days,
+        "coupon_rate_pct": round(coupon * 100, 4) if coupon else 0.0,
+        "coupon_freq":     freq,
+        "vn_base":         vn_base,
+        "settlement":      settle.strftime("%Y-%m-%d"),
+        "index_ratio":     index_ratio_val,
+        "precio_real":     precio_real_val,
+        "cashflows": [
+            {
+                "fecha":          d.strftime("%Y-%m-%d"),
+                "monto":          round(a, 4),
+                "dias_restantes": (d - today).days,
+            }
+            for d, a in flows
+        ],
+    }

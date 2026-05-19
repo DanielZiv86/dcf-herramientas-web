@@ -20,3 +20,9 @@ async def get_tabla(dcf_session: Optional[str] = Cookie(default=None)):
 async def get_curva(dcf_session: Optional[str] = Cookie(default=None)):
     require_auth(dcf_session)
     return await svc.get_cer_curva()
+
+
+@router.get("/instrumento/{ticker}")
+async def get_instrumento(ticker: str, dcf_session: Optional[str] = Cookie(default=None)):
+    require_auth(dcf_session)
+    return await svc.get_cer_instrumento(ticker)

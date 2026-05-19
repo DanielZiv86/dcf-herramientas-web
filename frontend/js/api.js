@@ -73,8 +73,9 @@ const api = {
     curva:  () => apiFetch('/letras/curva'),
   },
   cer: {
-    tabla:  () => apiFetch('/cer/tabla'),
-    curva:  () => apiFetch('/cer/curva'),
+    tabla:       () => apiFetch('/cer/tabla'),
+    curva:       () => apiFetch('/cer/curva'),
+    instrumento: (tk) => apiFetch('/cer/instrumento/' + encodeURIComponent(tk)),
   },
   ons: {
     tabla:  () => apiFetch('/ons/tabla'),
