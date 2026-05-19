@@ -1,0 +1,77 @@
+name: Recordatorio actualizacion datos mensuales
+
+# El dia 16 de cada mes a las 09:00 ART:
+# - IPC INDEC se publica alrededor del dia 10-15 de cada mes
+# - REM BCRA se publica alrededor del dia 20
+# - Letras nuevas se licitan mensualmente
+# Genera un GitHub Issue como recordatorio si no existe uno abierto ya.
+
+on:
+  schedule:
+    - cron: '0 12 16 * *'   # dia 16 de cada mes, 12:00 UTC = 09:00 ART
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  crear-recordatorio:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Crear issue de recordatorio
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const hoy = new Date();
+            const mes = hoy.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+
+            // Verificar si ya hay un issue abierto con el mismo titulo
+            const titulo = `[Datos mensuales] Actualizar Excels — ${mes}`;
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              state: 'open',
+              labels: 'datos-mensuales',
+            });
+
+            const existe = issues.data.some(i => i.title === titulo);
+            if (existe) {
+              console.log('Ya existe un issue abierto para este mes. Omitiendo.');
+              return;
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              title: titulo,
+              labels: ['datos-mensuales'],
+              body: [
+                '## Actualizaciones mensuales pendientes',
+                '',
+                '### 1. `backend/data/Inflacion mensual.xlsx`',
+                '- Fuente: [IPC INDEC](https://www.indec.gob.ar/indec/web/Nivel4-Tema-3-5-31)',
+                '- Agregar fila con IPC del mes anterior (% mensual)',
+                '- Se usa para extender la serie CER y calcular carry-trade en Letras',
+                '',
+                '### 2. `backend/data/BD REM.xlsx`',
+                '- Fuente: [REM BCRA](https://www.bcra.gob.ar/PublicacionesEstadisticas/Relevamiento_expectativas_de_mercado.asp)',
+                '- Agregar expectativas de inflacion del mes corriente',
+                '- Se usa para las bandas de carry-trade',
+                '',
+                '### 3. `backend/data/Letras Activas.xlsx`',
+                '- Fuente: [BCRA Licitaciones](https://www.bcra.gob.ar/SistemasFinancierosYdePagos/Licitaciones.asp)',
+                '- Revisar si se emitieron letras nuevas y si expiraron algunas',
+                '- Agregar/quitar filas segun corresponda',
+                '',
+                '### 4. `backend/data/metadata_cer.xlsx` (si corresponde)',
+                '- Agregar nuevos instrumentos CER si el MECON emitio o canjeó bonos',
+                '- Despues de actualizar: `cd backend && python build_cer_bd.py`',
+                '',
+                '> El rebuild de `BD BONOS CER.xlsx` se hace automaticamente a las 08:00 ART cada dia habil.',
+                '> Solo los Excels de arriba necesitan intervencion manual.',
+              ].join('\n'),
+            });
+
+            console.log(`Issue creado: ${titulo}`);

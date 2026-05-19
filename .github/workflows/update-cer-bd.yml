@@ -1,0 +1,59 @@
+name: Actualizar BD BONOS CER
+
+# Corre cada dia habil a las 08:00 ART (= 11:00 UTC, sumando 3h a ART)
+# El rebuild toma los datos oficiales nuevos de datos.gob.ar y recomputa
+# cer_base_value para instrumentos cuya ref_base_date cayó en la zona de lag.
+# Al commitear el Excel, Render redeploya el backend automaticamente.
+
+on:
+  schedule:
+    - cron: '0 11 * * 1-5'   # 11:00 UTC = 08:00 ART, lunes a viernes
+  workflow_dispatch:           # permite disparar manualmente desde GitHub UI
+
+permissions:
+  contents: write   # necesario para hacer el auto-commit del Excel
+
+jobs:
+  rebuild-cer-bd:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Instalar dependencias minimas del script
+        run: |
+          pip install httpx pandas openpyxl holidays
+
+      - name: Reconstruir BD BONOS CER.xlsx
+        run: |
+          cd backend
+          python build_cer_bd.py
+        env:
+          PYTHONPATH: .
+
+      - name: Verificar que el Excel cambio
+        id: check
+        run: |
+          git diff --quiet "backend/data/BD BONOS CER.xlsx" && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
+
+      - name: Commitear Excel actualizado
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "backend/data/BD BONOS CER.xlsx"
+          git commit -m "auto: actualizar BD BONOS CER.xlsx [$(date -u '+%Y-%m-%d')]"
+          git push
+
+      - name: Log si no hubo cambios
+        if: steps.check.outputs.changed == 'false'
+        run: echo "BD BONOS CER.xlsx sin cambios — cer_base_values ya eran exactos."
