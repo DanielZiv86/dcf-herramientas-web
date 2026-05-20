@@ -1,5 +1,18 @@
 {
   "generated_at": "2026-05-20",
+  "date_cols": [
+    "2025-05-30",
+    "2025-06-30",
+    "2025-07-31",
+    "2025-08-29",
+    "2025-09-30",
+    "2025-10-31",
+    "2025-11-28",
+    "2025-12-30",
+    "2026-01-30",
+    "2026-02-27",
+    "2026-03-31"
+  ],
   "fondos": [
     {
       "fondo_id": "1213",
@@ -12,7 +25,20 @@
       "rend_dia": null,
       "rend_mes": 1.91,
       "rend_year": 29.51,
-      "rend_ytd": 6.31
+      "rend_ytd": 6.31,
+      "monthly_returns": [
+        2.2197,
+        2.3643,
+        2.3465,
+        2.9106,
+        3.3626,
+        3.1529,
+        1.8607,
+        1.7825,
+        2.2667,
+        2.0057,
+        1.9102
+      ]
     },
     {
       "fondo_id": "1538",
@@ -25,7 +51,20 @@
       "rend_dia": null,
       "rend_mes": 0.1,
       "rend_year": 1.53,
-      "rend_ytd": 0.37
+      "rend_ytd": 0.37,
+      "monthly_returns": [
+        0.167,
+        0.1762,
+        0.1539,
+        0.141,
+        0.1436,
+        0.1223,
+        0.112,
+        0.1434,
+        0.147,
+        0.1167,
+        0.1013
+      ]
     },
     {
       "fondo_id": "1784",
@@ -38,7 +77,20 @@
       "rend_dia": null,
       "rend_mes": null,
       "rend_year": null,
-      "rend_ytd": null
+      "rend_ytd": null,
+      "monthly_returns": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        0.0,
+        0.0
+      ]
     },
     {
       "fondo_id": "569",
@@ -51,7 +103,20 @@
       "rend_dia": null,
       "rend_mes": 2.87,
       "rend_year": 33.94,
-      "rend_ytd": 7.57
+      "rend_ytd": 7.57,
+      "monthly_returns": [
+        2.6726,
+        2.1633,
+        2.5303,
+        2.1417,
+        3.8766,
+        3.4489,
+        2.9799,
+        2.4289,
+        2.2796,
+        2.2353,
+        2.8692
+      ]
     },
     {
       "fondo_id": "1233",
@@ -64,7 +129,20 @@
       "rend_dia": null,
       "rend_mes": null,
       "rend_year": null,
-      "rend_ytd": null
+      "rend_ytd": null,
+      "monthly_returns": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
     },
     {
       "fondo_id": "1438",
@@ -77,7 +155,20 @@
       "rend_dia": null,
       "rend_mes": null,
       "rend_year": null,
-      "rend_ytd": null
+      "rend_ytd": null,
+      "monthly_returns": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
     },
     {
       "fondo_id": "1547",
@@ -90,7 +181,20 @@
       "rend_dia": null,
       "rend_mes": null,
       "rend_year": null,
-      "rend_ytd": null
+      "rend_ytd": null,
+      "monthly_returns": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
     },
     {
       "fondo_id": "791",
@@ -103,7 +207,20 @@
       "rend_dia": null,
       "rend_mes": 7.32,
       "rend_year": 47.68,
-      "rend_ytd": 15.1
+      "rend_ytd": 15.1,
+      "monthly_returns": [
+        4.8973,
+        0.0629,
+        -0.1159,
+        -1.0446,
+        -4.3897,
+        20.2431,
+        3.9573,
+        3.4845,
+        2.7438,
+        4.3818,
+        7.3202
+      ]
     },
     {
       "fondo_id": "551",
@@ -116,7 +233,20 @@
       "rend_dia": null,
       "rend_mes": 4.11,
       "rend_year": 41.99,
-      "rend_ytd": 10.76
+      "rend_ytd": 10.76,
+      "monthly_returns": [
+        2.6536,
+        2.0592,
+        1.9489,
+        2.8257,
+        3.8662,
+        6.3428,
+        3.1864,
+        2.4177,
+        2.9932,
+        3.2903,
+        4.1129
+      ]
     },
     {
       "fondo_id": "832",
@@ -129,7 +259,20 @@
       "rend_dia": null,
       "rend_mes": 4.13,
       "rend_year": 41.04,
-      "rend_ytd": 7.42
+      "rend_ytd": 7.42,
+      "monthly_returns": [
+        4.2763,
+        0.3542,
+        3.7004,
+        0.0327,
+        0.7901,
+        13.7367,
+        2.7063,
+        2.7315,
+        1.8148,
+        1.3183,
+        4.1345
+      ]
     },
     {
       "fondo_id": "1317",
@@ -142,7 +285,20 @@
       "rend_dia": null,
       "rend_mes": 4.18,
       "rend_year": 39.75,
-      "rend_ytd": 7.8
+      "rend_ytd": 7.8,
+      "monthly_returns": [
+        2.0656,
+        2.4517,
+        4.132,
+        0.7307,
+        1.181,
+        10.4124,
+        3.1056,
+        2.612,
+        1.2265,
+        2.2174,
+        4.1826
+      ]
     },
     {
       "fondo_id": "657",
@@ -155,7 +311,20 @@
       "rend_dia": null,
       "rend_mes": 5.28,
       "rend_year": 37.49,
-      "rend_ytd": 11.97
+      "rend_ytd": 11.97,
+      "monthly_returns": [
+        2.4058,
+        0.0621,
+        0.7506,
+        0.6266,
+        -0.838,
+        13.0194,
+        2.9804,
+        2.412,
+        2.3904,
+        3.8727,
+        5.2797
+      ]
     },
     {
       "fondo_id": "850",
@@ -168,7 +337,20 @@
       "rend_dia": null,
       "rend_mes": 4.79,
       "rend_year": 33.88,
-      "rend_ytd": 11.68
+      "rend_ytd": 11.68,
+      "monthly_returns": [
+        null,
+        null,
+        -0.5328,
+        -0.6347,
+        -14.9396,
+        33.2018,
+        3.8837,
+        3.0554,
+        2.8463,
+        3.6204,
+        4.7913
+      ]
     },
     {
       "fondo_id": "1668",
@@ -181,7 +363,20 @@
       "rend_dia": null,
       "rend_mes": 2.78,
       "rend_year": 30.03,
-      "rend_ytd": 8.4
+      "rend_ytd": 8.4,
+      "monthly_returns": [
+        null,
+        null,
+        null,
+        3.96,
+        4.5824,
+        4.3981,
+        3.0081,
+        2.5919,
+        3.0036,
+        2.3917,
+        2.7839
+      ]
     },
     {
       "fondo_id": "499",
@@ -194,7 +389,20 @@
       "rend_dia": null,
       "rend_mes": -1.25,
       "rend_year": 26.77,
-      "rend_ytd": -3.8
+      "rend_ytd": -3.8,
+      "monthly_returns": [
+        2.3777,
+        1.4923,
+        12.7278,
+        -2.1837,
+        6.1841,
+        6.2887,
+        0.9691,
+        0.9261,
+        -0.4935,
+        -2.1001,
+        -1.2456
+      ]
     },
     {
       "fondo_id": "732",
@@ -207,7 +415,20 @@
       "rend_dia": null,
       "rend_mes": -2.71,
       "rend_year": 17.3,
-      "rend_ytd": 0.24
+      "rend_ytd": 0.24,
+      "monthly_returns": [
+        1.5888,
+        0.376,
+        -1.0617,
+        -2.8034,
+        -11.2171,
+        26.1063,
+        3.7946,
+        2.691,
+        4.7796,
+        -1.6709,
+        -2.706
+      ]
     },
     {
       "fondo_id": "1297",
@@ -220,7 +441,20 @@
       "rend_dia": null,
       "rend_mes": 3.0,
       "rend_year": 13.58,
-      "rend_ytd": 9.15
+      "rend_ytd": 9.15,
+      "monthly_returns": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2.4287,
+        1.5925,
+        2.7904,
+        3.0912,
+        3.0045
+      ]
     },
     {
       "fondo_id": "787",
@@ -233,7 +467,20 @@
       "rend_dia": null,
       "rend_mes": 0.92,
       "rend_year": 8.52,
-      "rend_ytd": 2.89
+      "rend_ytd": 2.89,
+      "monthly_returns": [
+        0.8081,
+        0.2644,
+        0.5139,
+        0.2442,
+        1.5161,
+        -0.056,
+        1.3215,
+        0.7513,
+        1.2122,
+        0.7293,
+        0.9172
+      ]
     },
     {
       "fondo_id": "1407",
@@ -246,7 +493,20 @@
       "rend_dia": null,
       "rend_mes": 0.95,
       "rend_year": 6.11,
-      "rend_ytd": 1.87
+      "rend_ytd": 1.87,
+      "monthly_returns": [
+        0.3529,
+        0.325,
+        0.2684,
+        0.4412,
+        1.3581,
+        -0.2039,
+        0.8323,
+        0.7244,
+        0.6153,
+        0.2946,
+        0.9494
+      ]
     },
     {
       "fondo_id": "1582",
@@ -259,7 +519,20 @@
       "rend_dia": null,
       "rend_mes": -0.34,
       "rend_year": 5.54,
-      "rend_ytd": 0.48
+      "rend_ytd": 0.48,
+      "monthly_returns": [
+        0.0344,
+        0.3741,
+        0.6113,
+        0.5277,
+        2.3441,
+        -1.2551,
+        1.5036,
+        0.8292,
+        0.6031,
+        0.2149,
+        -0.3381
+      ]
     },
     {
       "fondo_id": "782",
@@ -272,7 +545,20 @@
       "rend_dia": null,
       "rend_mes": -0.29,
       "rend_year": 2.74,
-      "rend_ytd": 0.24
+      "rend_ytd": 0.24,
+      "monthly_returns": [
+        0.0627,
+        0.4464,
+        0.224,
+        0.503,
+        0.393,
+        0.2302,
+        0.2069,
+        0.402,
+        0.1781,
+        0.3535,
+        -0.293
+      ]
     },
     {
       "fondo_id": "1754",
@@ -285,7 +571,20 @@
       "rend_dia": null,
       "rend_mes": -1.08,
       "rend_year": 0.2,
-      "rend_ytd": -0.47
+      "rend_ytd": -0.47,
+      "monthly_returns": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        0.327,
+        0.3495,
+        0.1884,
+        0.4238,
+        -1.0792
+      ]
     },
     {
       "fondo_id": "1296",
@@ -298,7 +597,20 @@
       "rend_dia": null,
       "rend_mes": null,
       "rend_year": null,
-      "rend_ytd": null
+      "rend_ytd": null,
+      "monthly_returns": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
     },
     {
       "fondo_id": "1390",
@@ -311,7 +623,20 @@
       "rend_dia": null,
       "rend_mes": null,
       "rend_year": null,
-      "rend_ytd": null
+      "rend_ytd": null,
+      "monthly_returns": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
     },
     {
       "fondo_id": "1541",
@@ -324,7 +649,20 @@
       "rend_dia": null,
       "rend_mes": null,
       "rend_year": null,
-      "rend_ytd": null
+      "rend_ytd": null,
+      "monthly_returns": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
     },
     {
       "fondo_id": "1568",
@@ -337,7 +675,20 @@
       "rend_dia": null,
       "rend_mes": null,
       "rend_year": null,
-      "rend_ytd": null
+      "rend_ytd": null,
+      "monthly_returns": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
     },
     {
       "fondo_id": "1615",
@@ -350,7 +701,20 @@
       "rend_dia": null,
       "rend_mes": null,
       "rend_year": null,
-      "rend_ytd": null
+      "rend_ytd": null,
+      "monthly_returns": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
     },
     {
       "fondo_id": "1685",
@@ -363,7 +727,20 @@
       "rend_dia": null,
       "rend_mes": null,
       "rend_year": null,
-      "rend_ytd": null
+      "rend_ytd": null,
+      "monthly_returns": [
+        null,
+        null,
+        null,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        null,
+        null,
+        null,
+        null
+      ]
     },
     {
       "fondo_id": "1781",
@@ -376,7 +753,20 @@
       "rend_dia": null,
       "rend_mes": null,
       "rend_year": null,
-      "rend_ytd": null
+      "rend_ytd": null,
+      "monthly_returns": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        0.0,
+        0.0,
+        0.0
+      ]
     },
     {
       "fondo_id": "1810",
@@ -389,7 +779,20 @@
       "rend_dia": null,
       "rend_mes": null,
       "rend_year": null,
-      "rend_ytd": null
+      "rend_ytd": null,
+      "monthly_returns": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        0.0
+      ]
     },
     {
       "fondo_id": "666",
@@ -402,7 +805,20 @@
       "rend_dia": null,
       "rend_mes": 3.83,
       "rend_year": 41.22,
-      "rend_ytd": 9.51
+      "rend_ytd": 9.51,
+      "monthly_returns": [
+        4.4545,
+        1.596,
+        2.5907,
+        1.1573,
+        0.6339,
+        11.5774,
+        2.2364,
+        1.9968,
+        2.6357,
+        2.7654,
+        3.8305
+      ]
     },
     {
       "fondo_id": "498",
@@ -415,7 +831,20 @@
       "rend_dia": null,
       "rend_mes": 5.19,
       "rend_year": 41.03,
-      "rend_ytd": 5.02
+      "rend_ytd": 5.02,
+      "monthly_returns": [
+        4.6476,
+        -1.4715,
+        6.8025,
+        -2.8166,
+        -0.5865,
+        20.4843,
+        2.2109,
+        2.4924,
+        2.5386,
+        -2.6291,
+        5.1877
+      ]
     },
     {
       "fondo_id": "1782",
@@ -428,7 +857,20 @@
       "rend_dia": null,
       "rend_mes": null,
       "rend_year": null,
-      "rend_ytd": null
+      "rend_ytd": null,
+      "monthly_returns": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        0.0,
+        0.0
+      ]
     },
     {
       "fondo_id": "1783",
@@ -441,7 +883,20 @@
       "rend_dia": null,
       "rend_mes": null,
       "rend_year": null,
-      "rend_ytd": null
+      "rend_ytd": null,
+      "monthly_returns": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        0.0,
+        0.0
+      ]
     },
     {
       "fondo_id": "1795",
@@ -454,7 +909,20 @@
       "rend_dia": null,
       "rend_mes": null,
       "rend_year": null,
-      "rend_ytd": null
+      "rend_ytd": null,
+      "monthly_returns": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
     },
     {
       "fondo_id": "1796",
@@ -467,7 +935,20 @@
       "rend_dia": null,
       "rend_mes": null,
       "rend_year": null,
-      "rend_ytd": null
+      "rend_ytd": null,
+      "monthly_returns": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        0.0,
+        0.0
+      ]
     },
     {
       "fondo_id": "1371",
@@ -480,7 +961,20 @@
       "rend_dia": null,
       "rend_mes": 14.07,
       "rend_year": 39.47,
-      "rend_ytd": 0.75
+      "rend_ytd": 0.75,
+      "monthly_returns": [
+        6.6429,
+        -12.4898,
+        16.3862,
+        -14.0437,
+        -10.7288,
+        65.955,
+        -1.4528,
+        1.5599,
+        5.9087,
+        -16.6017,
+        14.0676
+      ]
     },
     {
       "fondo_id": "1515",
@@ -493,7 +987,20 @@
       "rend_dia": null,
       "rend_mes": -3.19,
       "rend_year": 36.31,
-      "rend_ytd": -3.69
+      "rend_ytd": -3.69,
+      "monthly_returns": [
+        2.8862,
+        0.1289,
+        15.3287,
+        -1.1642,
+        12.1586,
+        4.2343,
+        4.7054,
+        -1.5368,
+        -3.1881,
+        2.7616,
+        -3.1932
+      ]
     },
     {
       "fondo_id": "669",
@@ -506,7 +1013,20 @@
       "rend_dia": null,
       "rend_mes": 12.79,
       "rend_year": 35.92,
-      "rend_ytd": -2.17
+      "rend_ytd": -2.17,
+      "monthly_returns": [
+        7.3291,
+        -12.6662,
+        16.7629,
+        -14.2774,
+        -11.3717,
+        65.2427,
+        -0.6137,
+        1.7418,
+        4.7068,
+        -17.1615,
+        12.7865
+      ]
     },
     {
       "fondo_id": "1661",
@@ -519,7 +1039,20 @@
       "rend_dia": null,
       "rend_mes": -4.01,
       "rend_year": -3.66,
-      "rend_ytd": -5.37
+      "rend_ytd": -5.37,
+      "monthly_returns": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        2.0618,
+        -0.8748,
+        0.6318,
+        1.1267,
+        -2.5158,
+        -4.0086
+      ]
     },
     {
       "fondo_id": "1469",
@@ -532,7 +1065,20 @@
       "rend_dia": null,
       "rend_mes": 1.71,
       "rend_year": 28.55,
-      "rend_ytd": 5.78
+      "rend_ytd": 5.78,
+      "monthly_returns": [
+        1.9445,
+        2.1267,
+        2.2134,
+        2.8757,
+        3.3936,
+        3.3088,
+        2.0721,
+        1.8119,
+        2.1072,
+        1.8511,
+        1.7125
+      ]
     },
     {
       "fondo_id": "1635",
@@ -545,7 +1091,20 @@
       "rend_dia": null,
       "rend_mes": 0.32,
       "rend_year": 5.09,
-      "rend_ytd": 0.93
+      "rend_ytd": 0.93,
+      "monthly_returns": [
+        0.6617,
+        0.0923,
+        -0.185,
+        0.2364,
+        0.2105,
+        0.8676,
+        1.0972,
+        1.0727,
+        0.5026,
+        0.1079,
+        0.3188
+      ]
     },
     {
       "fondo_id": "1491",
@@ -558,7 +1117,20 @@
       "rend_dia": null,
       "rend_mes": 0.24,
       "rend_year": 2.84,
-      "rend_ytd": 0.66
+      "rend_ytd": 0.66,
+      "monthly_returns": [
+        0.3152,
+        0.3181,
+        0.2834,
+        0.2401,
+        0.2667,
+        0.261,
+        0.2154,
+        0.2446,
+        0.2051,
+        0.2106,
+        0.2423
+      ]
     },
     {
       "fondo_id": "876",
@@ -571,7 +1143,20 @@
       "rend_dia": null,
       "rend_mes": 2.18,
       "rend_year": 9.42,
-      "rend_ytd": 6.92
+      "rend_ytd": 6.92,
+      "monthly_returns": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2.3439,
+        2.4427,
+        2.1471,
+        2.1755
+      ]
     },
     {
       "fondo_id": "1657",
@@ -584,7 +1169,20 @@
       "rend_dia": null,
       "rend_mes": 12.36,
       "rend_year": 55.87,
-      "rend_ytd": 2.46
+      "rend_ytd": 2.46,
+      "monthly_returns": [
+        null,
+        null,
+        14.6574,
+        -9.666,
+        -10.2238,
+        55.5114,
+        3.4121,
+        1.7348,
+        2.9115,
+        -11.3927,
+        12.3589
+      ]
     },
     {
       "fondo_id": "1651",
@@ -597,7 +1195,20 @@
       "rend_dia": null,
       "rend_mes": 2.81,
       "rend_year": 11.04,
-      "rend_ytd": 8.38
+      "rend_ytd": 8.38,
+      "monthly_returns": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2.4553,
+        2.94,
+        2.4054,
+        2.8112
+      ]
     },
     {
       "fondo_id": "1664",
@@ -610,7 +1221,20 @@
       "rend_dia": null,
       "rend_mes": null,
       "rend_year": null,
-      "rend_ytd": null
+      "rend_ytd": null,
+      "monthly_returns": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
     },
     {
       "fondo_id": "225",
@@ -623,7 +1247,20 @@
       "rend_dia": null,
       "rend_mes": 1.96,
       "rend_year": 30.27,
-      "rend_ytd": 6.44
+      "rend_ytd": 6.44,
+      "monthly_returns": [
+        2.1857,
+        2.3113,
+        2.3175,
+        2.8701,
+        3.5252,
+        3.4255,
+        2.0994,
+        1.7408,
+        2.3235,
+        2.0271,
+        1.9551
+      ]
     },
     {
       "fondo_id": "1691",
@@ -636,7 +1273,20 @@
       "rend_dia": null,
       "rend_mes": 0.09,
       "rend_year": 1.05,
-      "rend_ytd": 0.3
+      "rend_ytd": 0.3,
+      "monthly_returns": [
+        null,
+        null,
+        null,
+        0.1619,
+        0.1822,
+        0.1538,
+        0.1394,
+        0.1115,
+        0.1166,
+        0.0924,
+        0.0869
+      ]
     },
     {
       "fondo_id": "463",
@@ -649,7 +1299,20 @@
       "rend_dia": null,
       "rend_mes": 3.71,
       "rend_year": 41.61,
-      "rend_ytd": 9.15
+      "rend_ytd": 9.15,
+      "monthly_returns": [
+        3.628,
+        0.9285,
+        2.7124,
+        1.2752,
+        4.6104,
+        5.7047,
+        4.8659,
+        2.8395,
+        2.4886,
+        2.6903,
+        3.7077
+      ]
     },
     {
       "fondo_id": "586",
@@ -662,7 +1325,20 @@
       "rend_dia": null,
       "rend_mes": 5.38,
       "rend_year": 45.15,
-      "rend_ytd": 12.71
+      "rend_ytd": 12.71,
+      "monthly_returns": [
+        4.8482,
+        0.0747,
+        -0.9512,
+        -0.4152,
+        -6.5789,
+        25.05,
+        3.5336,
+        2.8782,
+        2.6414,
+        4.2021,
+        5.3827
+      ]
     },
     {
       "fondo_id": "282",
@@ -675,7 +1351,20 @@
       "rend_dia": null,
       "rend_mes": 3.35,
       "rend_year": 39.54,
-      "rend_ytd": 9.9
+      "rend_ytd": 9.9,
+      "monthly_returns": [
+        2.3106,
+        2.16,
+        2.4503,
+        3.0332,
+        3.955,
+        5.4613,
+        2.9484,
+        1.9664,
+        2.9393,
+        3.299,
+        3.3515
+      ]
     },
     {
       "fondo_id": "180",
@@ -688,7 +1377,20 @@
       "rend_dia": null,
       "rend_mes": 15.76,
       "rend_year": 29.64,
-      "rend_ytd": 21.7
+      "rend_ytd": 21.7,
+      "monthly_returns": [
+        3.4536,
+        -1.617,
+        1.9347,
+        -4.2318,
+        -8.7766,
+        20.1255,
+        -2.9392,
+        0.7986,
+        7.6703,
+        -2.358,
+        15.7634
+      ]
     },
     {
       "fondo_id": "395",
@@ -701,7 +1403,20 @@
       "rend_dia": null,
       "rend_mes": 2.46,
       "rend_year": 28.61,
-      "rend_ytd": 7.17
+      "rend_ytd": 7.17,
+      "monthly_returns": [
+        -1.7107,
+        2.2761,
+        2.5978,
+        2.8263,
+        3.8507,
+        4.0901,
+        2.4538,
+        2.1744,
+        2.3772,
+        2.1669,
+        2.4574
+      ]
     },
     {
       "fondo_id": "794",
@@ -714,7 +1429,20 @@
       "rend_dia": null,
       "rend_mes": -0.31,
       "rend_year": 15.95,
-      "rend_ytd": 1.13
+      "rend_ytd": 1.13,
+      "monthly_returns": [
+        1.1341,
+        0.3994,
+        -0.8139,
+        -2.0486,
+        -10.8877,
+        24.1301,
+        2.1756,
+        2.8337,
+        2.27,
+        -0.8071,
+        -0.3091
+      ]
     },
     {
       "fondo_id": "699",
@@ -727,7 +1455,20 @@
       "rend_dia": null,
       "rend_mes": 0.45,
       "rend_year": 6.02,
-      "rend_ytd": 2.27
+      "rend_ytd": 2.27,
+      "monthly_returns": [
+        -0.7684,
+        0.1528,
+        0.0967,
+        -0.1309,
+        1.932,
+        0.3144,
+        1.3038,
+        0.7347,
+        1.3405,
+        0.4687,
+        0.4498
+      ]
     },
     {
       "fondo_id": "525",
@@ -740,7 +1481,20 @@
       "rend_dia": null,
       "rend_mes": 0.92,
       "rend_year": 75.62,
-      "rend_ytd": 10.23
+      "rend_ytd": 10.23,
+      "monthly_returns": [
+        3.7111,
+        -0.0075,
+        8.1961,
+        4.2833,
+        11.569,
+        10.9031,
+        7.8499,
+        2.0364,
+        4.3908,
+        4.6313,
+        0.9155
+      ]
     },
     {
       "fondo_id": "810",
@@ -753,7 +1507,20 @@
       "rend_dia": null,
       "rend_mes": 0.4,
       "rend_year": 34.66,
-      "rend_ytd": -0.52
+      "rend_ytd": -0.52,
+      "monthly_returns": [
+        7.9057,
+        2.1629,
+        7.0094,
+        0.1043,
+        -0.8872,
+        11.465,
+        1.6789,
+        2.0448,
+        -0.0382,
+        -0.8724,
+        0.3962
+      ]
     },
     {
       "fondo_id": "1323",
@@ -766,7 +1533,20 @@
       "rend_dia": null,
       "rend_mes": 2.53,
       "rend_year": 31.8,
-      "rend_ytd": 5.46
+      "rend_ytd": 5.46,
+      "monthly_returns": [
+        4.1355,
+        0.4878,
+        2.6778,
+        -0.2359,
+        -0.0122,
+        10.8961,
+        2.9572,
+        2.1261,
+        1.3837,
+        1.4552,
+        2.5328
+      ]
     },
     {
       "fondo_id": "661",
@@ -779,7 +1559,20 @@
       "rend_dia": null,
       "rend_mes": 2.72,
       "rend_year": 17.98,
-      "rend_ytd": 7.47
+      "rend_ytd": 7.47,
+      "monthly_returns": [
+        -5.3046,
+        -1.0702,
+        0.2305,
+        1.7595,
+        -6.4219,
+        18.3138,
+        2.3014,
+        1.4348,
+        1.6652,
+        2.9156,
+        2.7159
+      ]
     },
     {
       "fondo_id": "867",
@@ -792,7 +1585,20 @@
       "rend_dia": null,
       "rend_mes": null,
       "rend_year": null,
-      "rend_ytd": null
+      "rend_ytd": null,
+      "monthly_returns": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
     },
     {
       "fondo_id": "227",
@@ -805,7 +1611,20 @@
       "rend_dia": null,
       "rend_mes": 13.38,
       "rend_year": 38.24,
-      "rend_ytd": -1.16
+      "rend_ytd": -1.16,
+      "monthly_returns": [
+        7.3679,
+        -12.4224,
+        16.0255,
+        -14.7463,
+        -11.4871,
+        67.3921,
+        0.6377,
+        0.8461,
+        5.382,
+        -17.2732,
+        13.379
+      ]
     }
   ]
 }

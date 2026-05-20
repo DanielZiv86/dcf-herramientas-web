@@ -158,6 +158,15 @@ def build(fondos_path: Path, vcp_path: Path) -> list[dict]:
             rend_year = _compound(serie, date_cols)
             rend_ytd  = _compound(serie, ytd_cols)
 
+        # Serie mensual para gráfico de líneas (retorno mensual en %)
+        monthly_returns = []
+        if clase_nombre in df_vcp.index:
+            for c in date_cols:
+                v = df_vcp.loc[clase_nombre, c]
+                monthly_returns.append(round(float(v), 4) if pd.notna(v) else None)
+        else:
+            monthly_returns = [None] * len(date_cols)
+
         rows.append({
             "fondo_id":    fondo_id,
             "clase_id":    clase_id,
@@ -166,14 +175,15 @@ def build(fondos_path: Path, vcp_path: Path) -> list[dict]:
             "alyc":        alyc,
             "tipo":        tipo,
             "moneda":      moneda,
-            "rend_dia":    None,   # requiere llamada live a /ficha — se actualiza on-demand
+            "rend_dia":    None,   # requiere llamada live a /ficha
             "rend_mes":    rend_mes,
             "rend_year":   rend_year,
             "rend_ytd":    rend_ytd,
+            "monthly_returns": monthly_returns,
         })
 
     rows.sort(key=lambda r: (r["alyc"], r["tipo"], -(r["rend_year"] or -9999)))
-    return rows
+    return rows, date_cols
 
 
 def main():
@@ -191,11 +201,12 @@ def main():
         print(f"ERROR: No se encontró {args.vcp}", file=sys.stderr)
         sys.exit(1)
 
-    rows = build(args.fondos, args.vcp)
+    rows, date_cols = build(args.fondos, args.vcp)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     output = {
         "generated_at": date.today().isoformat(),
+        "date_cols": date_cols,   # fechas mensuales compartidas por todos los fondos
         "fondos": rows,
     }
     with open(args.output, "w", encoding="utf-8") as f:
