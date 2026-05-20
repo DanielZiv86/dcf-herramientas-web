@@ -945,6 +945,24 @@
 
 /* ─── ONs ────────────────────────────────────────────────────────────────── */
 .ons-filters { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.ons-badge-ny {
+  background: #1e3a5f; color: #9ecae1;
+  padding: 1px 6px; border-radius: 3px;
+  font-size: 10px; font-weight: 700;
+}
+.ons-badge-ar {
+  background: #3b2a0d; color: #f28e2b;
+  padding: 1px 6px; border-radius: 3px;
+  font-size: 10px; font-weight: 700;
+}
+.ons-filter-lbl {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--bt2-sub);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: 4px;
+}
 
 /* ─── CER ────────────────────────────────────────────────────────────────── */
 .cer-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
