@@ -77,13 +77,21 @@ let _onsPageData = [];
   // Cargar datos
   try {
     const data = await api.ons.tabla();
-    _onsPageData = data || [];
+    _onsPageData = Array.isArray(data) ? data : (data?.items || []);
     _onsRenderKPIs(_onsPageData);
     _onsRenderTable(_onsPageData);
     _onsRenderChart(_onsPageData);
   } catch (e) {
-    console.error('[ONs] Error cargando datos:', e);
-    _onsShowError(e);
+    console.error('[ONs] Error cargando /api/ons/tabla:', e);
+    // Intentar ping para diagnóstico más preciso
+    try {
+      const ping = await api.ons.ping();
+      console.info('[ONs] Ping result:', ping);
+      _onsShowErrorWithDiag(e, ping);
+    } catch (pingErr) {
+      console.error('[ONs] Ping también falló:', pingErr);
+      _onsShowError(e);
+    }
   }
 
   // Wiring de filtros
@@ -102,27 +110,27 @@ let _onsPageData = [];
 };
 
 // ── Error display ──────────────────────────────────────────────────────────
-function _onsShowError(e) {
+function _onsShowError(e, diagDetail = '') {
   const wrap = document.getElementById('ons-tabla-wrap');
   if (!wrap) return;
 
   let msg = 'No se pudo cargar la información de Obligaciones Negociables.';
-  let detail = '';
+  let detail = diagDetail;
 
   if (e && e.message) {
-    if (e.message.includes('Failed to fetch') || e.message.includes('NetworkError')) {
-      msg = 'Backend no disponible. Verificá la conexión con el servidor.';
-      detail = 'El endpoint /api/ons/tabla no respondió.';
+    if (e.message.includes('Failed to fetch') || e.message.includes('NetworkError') || e.message.includes('ERR_')) {
+      msg = 'No se pudo conectar al servidor de datos.';
+      if (!detail) detail = 'Verificá que el backend está corriendo en Render y que no está en cold start.';
     } else if (e.message.includes('500')) {
-      msg = 'Error interno del servidor al procesar los datos de ONs.';
-      detail = e.message;
+      msg = 'El servidor respondió con un error interno (500).';
+      detail = detail || e.message;
     } else if (e.message.includes('404')) {
-      msg = 'Endpoint /api/ons/tabla no encontrado.';
-      detail = e.message;
+      msg = 'El endpoint /api/ons/tabla no existe en el backend.';
+      detail = detail || e.message;
     } else if (e.message.includes('401')) {
       msg = 'Sesión expirada. Recargá la página.';
     } else {
-      detail = e.message;
+      detail = detail || e.message;
     }
   }
 
@@ -131,11 +139,26 @@ function _onsShowError(e) {
       <div style="font-family:var(--font-mono);color:var(--negative);font-size:.82rem;font-weight:700;margin-bottom:8px">
         ✕ ${msg}
       </div>
-      ${detail ? `<div style="font-family:var(--font-mono);color:var(--text-muted);font-size:.72rem;background:#0a1020;border-radius:4px;padding:8px 10px;margin-top:6px">${detail}</div>` : ''}
-      <div style="font-family:var(--font-mono);color:var(--text-muted);font-size:.7rem;margin-top:10px">
-        Los filtros siguen activos. Intentá recargar la sección.
+      ${detail ? `<div style="font-family:var(--font-mono);color:var(--text-muted);font-size:.72rem;background:#0a1020;border-radius:4px;padding:8px 10px;margin-top:6px;word-break:break-word">${detail}</div>` : ''}
+      <div style="font-family:var(--font-mono);color:var(--text-muted);font-size:.68rem;margin-top:10px">
+        Podés diagnosticar el problema abriendo la consola del browser (F12) y ejecutando:<br>
+        <code style="color:#94a3b8">api.ons.ping().then(r => console.log(r))</code>
       </div>
     </div>`;
+}
+
+function _onsShowErrorWithDiag(e, ping) {
+  let diagDetail = '';
+  if (ping) {
+    if (ping.status === 'bd_error') {
+      diagDetail = `Error en BD ONs: ${ping.errors?.join(', ')}`;
+    } else if (ping.status === 'ok' || ping.status === 'partial') {
+      const bdInfo = ping.bd ? `BD: ${ping.bd.tickers} tickers` : 'BD: ?';
+      const mepInfo = ping.mep ? `MEP: $${ping.mep}` : 'MEP: no disponible';
+      diagDetail = `${bdInfo} | ${mepInfo} — Ping OK pero /tabla falló. Errores: ${ping.errors?.join(', ') || 'ninguno'}`;
+    }
+  }
+  _onsShowError(e, diagDetail);
 }
 
 // ── Filtrado y ordenamiento ────────────────────────────────────────────────
