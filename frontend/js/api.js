@@ -78,8 +78,9 @@ const api = {
     instrumento: (tk) => apiFetch('/cer/instrumento/' + encodeURIComponent(tk)),
   },
   ons: {
-    tabla: () => apiFetch('/ons/tabla'),
-    ping:  () => apiFetch('/ons/ping'),
+    tabla:   () => apiFetch('/ons/tabla'),
+    ping:    () => apiFetch('/ons/ping'),
+    detalle: (ticker) => apiFetch('/ons/detalle/' + encodeURIComponent(ticker)),
   },
   fci: {
     fondos:    (params = {}) => {

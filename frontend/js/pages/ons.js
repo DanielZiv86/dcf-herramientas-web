@@ -502,79 +502,333 @@ function _onsChartEmpty(el) {
 }
 
 // ── Modal de detalle por ticker ────────────────────────────────────────────
-function _openOnsDetail(ticker) {
-  const d = _onsPageData.find(x => x.ticker === ticker);
-  if (!d) return;
-  const old = document.getElementById('ons-detail-overlay');
-  if (old) old.remove();
 
-  const fT  = v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2).replace('.', ',') + '%' : 'N/D';
-  const fU  = v => v != null ? '$ ' + Number(v).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}) : 'N/D';
-  const fA  = v => v != null ? '$ ' + Number(v).toLocaleString('es-AR',{minimumFractionDigits:0}) : 'N/D';
-  const fDu = v => v != null ? v.toFixed(2).replace('.', ',') : 'N/D';
-  const fDa = s => s ? s.split('-').reverse().join('/') : 'N/D';
+async function _openOnsDetail(ticker) {
+  document.getElementById('ons-detail-overlay')?.remove();
 
-  const tirColor = d.ytm == null ? '' : d.ytm >= 5 ? 'color:#22c55e' : d.ytm < 0 ? 'color:#ef4444' : 'color:#f97316';
-  const legBadge = d.legislacion === 'NY'
-    ? '<span class="ons-badge-ny" style="font-size:12px;padding:2px 8px">Ley New York</span>'
-    : '<span class="ons-badge-ar" style="font-size:12px;padding:2px 8px">Ley Argentina</span>';
-  const mi = (l, v, s = '') =>
-    `<div class="bcc-meta-item"><span class="bcc-meta-label">${l}</span><span class="bcc-meta-val" style="${s}">${v}</span></div>`;
-
-  const nivelTIR = d.ytm == null ? '' : d.ytm >= 9 ? 'alta' : d.ytm >= 5 ? 'moderada' : d.ytm >= 2 ? 'baja' : 'muy baja';
-  const sensDur  = d.duration == null ? '' : d.duration < 1 ? 'baja sensibilidad' : d.duration < 2.5 ? 'sensibilidad moderada' : 'sensibilidad alta';
-
-  const el = document.createElement('div');
-  el.id = 'ons-detail-overlay';
-  el.className = 'bcc-overlay';
-  el.innerHTML = `
-    <div class="bcc-modal" style="max-width:540px">
-      <div class="bcc-header">
-        <div>
-          <span class="bcc-title" style="color:var(--bt2-accent)">${d.ticker}</span>
-          <span style="margin-left:8px">${legBadge}</span>
+  // Overlay con loading inmediato
+  const overlay = document.createElement('div');
+  overlay.id = 'ons-detail-overlay';
+  overlay.className = 'bcc-overlay';
+  overlay.innerHTML = `
+    <div class="bcc-modal ons-detail-wide" id="ons-detail-modal">
+      <div class="bcc-header" id="ons-detail-hdr">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="bcc-title" style="color:var(--bt2-accent)">${ticker}</span>
+          <span style="font-family:var(--font-mono);font-size:.72rem;color:var(--bt2-sub)">Cargando detalle…</span>
         </div>
         <button class="bcc-close" onclick="document.getElementById('ons-detail-overlay').remove()">✕</button>
       </div>
-      <div class="bcc-body">
-        <div class="bcc-meta">
-          ${mi('P. USD',        fU(d.price_usd),     '')}
-          ${mi('P. ARS',        fA(d.price_ars),     'color:#64748b')}
-          ${mi('MEP',           '$ '+(d.mep?.toLocaleString('es-AR',{minimumFractionDigits:0}) || '—'), 'color:#64748b')}
-          ${mi('TIR USD',       fT(d.ytm),           tirColor+';font-weight:700')}
-          ${mi('Duration',      fDu(d.duration)+' años', '')}
-          ${mi('Mod. Duration', fDu(d.modified_duration), '')}
-          ${mi('Cupón',         fT(d.cupon),         '')}
-          ${mi('Vencimiento',   fDa(d.maturity),     '')}
-          ${mi('Días al venc.', d.dias_vencimiento != null ? String(d.dias_vencimiento) : 'N/D', '')}
-          ${mi('Próx. cupón',   fDa(d.next_coupon),  'color:#64748b')}
-          ${d.pct_change != null ? mi('% Día', fT(d.pct_change), d.pct_change >= 0 ? 'color:#22c55e' : 'color:#ef4444') : ''}
-        </div>
-        <div class="bcc-card">
-          <div class="bcc-card-title">INTERPRETACIÓN</div>
-          <div class="bcc-card-body">
-            <p class="bcc-note" style="line-height:1.8">
-              La ON <b>${d.ticker}</b> presenta TIR en USD de
-              <span style="${tirColor};font-weight:700">${fT(d.ytm)}</span>
-              ${d.ytm != null ? '(nivel '+nivelTIR+')' : ''}.
-              ${d.duration != null ? 'Duration ' + fDu(d.duration) + ' años → ' + sensDur + ' a variaciones de tasa.' : ''}
-              ${d.next_coupon ? ' Próximo flujo: <b>'+fDa(d.next_coupon)+'</b>.' : ''}
-              ${d.dias_vencimiento != null && d.dias_vencimiento <= 90 ? '<br><span style="color:#fbbf24">⚠ Vencimiento en '+d.dias_vencimiento+' días.</span>' : ''}
-            </p>
-            <p class="bcc-note" style="margin-top:8px;color:var(--bt2-sub);font-size:.6rem">
-              TIR calculada en USD · precio ARS / MEP
-              ${d.mep != null ? '($'+d.mep.toLocaleString('es-AR',{minimumFractionDigits:0})+')' : ''}.
-              Convención 30/360 · Fuente: BD ONs.xlsx + data912.
-            </p>
-          </div>
+      <div class="bcc-body" id="ons-detail-body">
+        <div style="padding:24px 16px">
+          ${[80,60,90,50,70].map(w =>
+            `<div class="skeleton" style="height:14px;width:${w}%;border-radius:4px;margin:8px 0"></div>`
+          ).join('')}
         </div>
       </div>
     </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') overlay.remove();
+  }, { once: true });
 
-  document.body.appendChild(el);
-  el.addEventListener('click', e => { if (e.target === el) el.remove(); });
-  const esc = e => { if (e.key === 'Escape') { el.remove(); document.removeEventListener('keydown', esc); } };
-  document.addEventListener('keydown', esc);
+  // Fetch detalle
+  try {
+    const d = await api.ons.detalle(ticker);
+    _onsRenderDetailModal(ticker, d);
+  } catch (err) {
+    console.error(`[ONs] Error detalle ${ticker}:`, err);
+    const body = document.getElementById('ons-detail-body');
+    if (body) {
+      const msg = err?.status === 404
+        ? 'No se encontró información para este ticker.'
+        : err?.status === 500
+          ? 'Error al calcular el detalle del instrumento.'
+          : 'No se pudo cargar el detalle de ' + ticker + '.';
+      body.innerHTML = `
+        <div style="padding:20px 16px">
+          <div style="font-family:var(--font-mono);color:var(--negative);font-size:.8rem;margin-bottom:8px">✕ ${msg}</div>
+          <div style="font-family:var(--font-mono);color:var(--text-muted);font-size:.7rem">${err?.message || ''}</div>
+        </div>`;
+    }
+  }
+}
+
+function _onsRenderDetailModal(ticker, d) {
+  const overlay = document.getElementById('ons-detail-overlay');
+  if (!overlay) return;
+
+  // Helpers de formato
+  const fT  = v => v != null ? (v >= 0 ? '+' : '') + Number(v).toFixed(2).replace('.', ',') + '%' : '—';
+  const fU  = (v, dec=4) => v != null ? Number(v).toFixed(dec).replace('.', ',') : '—';
+  const fA  = v => v != null ? '$ ' + Number(v).toLocaleString('es-AR', {minimumFractionDigits:0}) : '—';
+  const fD  = s => s ? s.split('-').reverse().join('/') : '—';
+  const fN  = (v, dec=2) => v != null ? Number(v).toFixed(dec).replace('.', ',') : '—';
+
+  // Badges
+  const legBadge = d.legislacion === 'NY'
+    ? '<span class="ons-badge-ny" style="font-size:11px;padding:2px 7px">Ley NY</span>'
+    : '<span class="ons-badge-ar" style="font-size:11px;padding:2px 7px">Ley AR</span>';
+  const alerts = [];
+  if (d.dias_vencimiento != null && d.dias_vencimiento <= 90)
+    alerts.push('<span style="color:#fbbf24;font-family:var(--font-mono);font-size:.7rem">⚠ Venc. cercano</span>');
+  if (d.ytm != null && d.ytm < 0)
+    alerts.push('<span style="color:#ef4444;font-family:var(--font-mono);font-size:.7rem">TIR negativa</span>');
+  if (d.status === 'NO_PRICE' || !d.price_usd_mep)
+    alerts.push('<span style="color:#f97316;font-family:var(--font-mono);font-size:.7rem">Sin precio</span>');
+
+  // Header
+  const hdr = document.getElementById('ons-detail-hdr');
+  if (hdr) {
+    hdr.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span class="bcc-title" style="color:var(--bt2-accent)">${ticker}</span>
+          ${legBadge}
+          <span class="ons-badge-ny" style="background:#0f2a3d;color:#64748b;padding:2px 7px;font-size:10px">USD</span>
+          ${alerts.join('')}
+        </div>
+        <span style="font-family:var(--font-mono);font-size:.65rem;color:var(--bt2-sub)">
+          ${d.periodicidad || '—'} · Vence ${fD(d.maturity)}
+          ${d.lamina_minima != null ? '· Lámina mín. ' + d.lamina_minima + ' VN' : ''}
+          ${d.ticker_d ? '· Ticker D: <b>' + d.ticker_d + '</b>' : ''}
+        </span>
+      </div>
+      <button class="bcc-close" onclick="document.getElementById('ons-detail-overlay').remove()">✕</button>`;
+  }
+
+  // Colores dinámicos
+  const tirColor  = d.ytm == null ? '#94a3b8' : d.ytm >= 9 ? '#22c55e' : d.ytm >= 5 ? '#84cc16' : d.ytm >= 2 ? '#f97316' : d.ytm < 0 ? '#ef4444' : '#94a3b8';
+  const parColor  = v => v == null ? '' : v < 0 ? 'color:#22c55e' : v > 0 ? 'color:#ef4444' : 'color:#94a3b8';
+
+  // Micro-card de métrica
+  const mi = (label, val, sub='', style='') => `
+    <div class="ons-detail-mi">
+      <div class="ons-detail-mi-label">${label}</div>
+      <div class="ons-detail-mi-val"${style ? ' style="' + style + '"' : ''}>${val}</div>
+      ${sub ? `<div class="ons-detail-mi-sub">${sub}</div>` : ''}
+    </div>`;
+
+  // Título de sección interna
+  const sec = t => `<div class="ons-detail-sec">${t}</div>`;
+
+  const metricsHtml = `
+    ${sec('PRECIO Y RENDIMIENTO')}
+    <div class="ons-detail-grid4">
+      ${mi('TIR USD',        fT(d.ytm),           '', 'color:' + tirColor + ';font-size:1rem')}
+      ${mi('P. USD (MEP)',   fU(d.price_usd_mep), 'ARS ÷ MEP')}
+      ${mi('P. USD (D)',     fU(d.price_usd_d),   'Ticker ' + (d.ticker_d || 'D'))}
+      ${mi('Precio ARS',     fA(d.price_ars),     '')}
+    </div>
+    <div class="ons-detail-grid4">
+      ${mi('Duration (Mac.)',   fN(d.duration) + ' a',          '')}
+      ${mi('Mod. Duration',     fN(d.modified_duration),         '')}
+      ${mi('MEP',               fA(d.mep),                       'AL30D')}
+      ${d.pct_change != null
+          ? mi('% Día', fT(d.pct_change), '', d.pct_change >= 0 ? 'color:#22c55e' : 'color:#ef4444')
+          : mi('% Día', '—')}
+    </div>
+
+    ${sec('VALOR TEÓRICO Y PARIDAD')}
+    <div class="ons-detail-grid4">
+      ${mi('Valor Teórico',   fU(d.valor_teorico),  'USD / 100 VN')}
+      ${mi('Paridad (MEP)',   fT(d.paridad_mep),    'vs VT', parColor(d.paridad_mep))}
+      ${mi('Paridad (D)',     fT(d.paridad_d),      'vs VT', parColor(d.paridad_d))}
+      ${mi('Cupón corrido',   fU(d.cupon_corrido),  'USD / 100 VN')}
+    </div>
+
+    ${sec('PRÓXIMO PAGO')}
+    <div class="ons-detail-grid4">
+      ${mi('Fecha',        fD(d.proximo_pago),             '')}
+      ${mi('Días',         d.dias_proximo_pago != null ? String(d.dias_proximo_pago) : '—', '')}
+      ${mi('Interés USD',  fU(d.interes_proximo_pago),     '/ 100 VN')}
+      ${mi('Amortización', fU(d.amort_proximo_pago),       '/ 100 VN')}
+    </div>
+
+    ${sec('CAPITAL E INTERÉS PENDIENTE')}
+    <div class="ons-detail-grid4">
+      ${mi('Capital pend.',  fU(d.capital_pendiente),  'USD / 100 VN')}
+      ${mi('Interés pend.',  fU(d.interes_pendiente),  'USD / 100 VN')}
+      ${mi('Periodicidad',   d.periodicidad || '—',    '')}
+      ${mi('Lámina mín.',    d.lamina_minima != null ? d.lamina_minima + ' VN' : '—', '')}
+    </div>`;
+
+  // Tabla de cashflows
+  const cfTable = d.cashflows && d.cashflows.length
+    ? `<div style="overflow-x:auto;max-height:280px;overflow-y:auto">
+        <table class="bt2-table" style="font-size:.7rem">
+          <thead><tr>
+            <th style="text-align:left">FECHA</th>
+            <th>DÍAS</th>
+            <th style="color:#9ecae1">CAPITAL</th>
+            <th style="color:#f97316">INTERÉS</th>
+            <th>TOTAL</th>
+            <th style="color:#64748b">VAL. PRES.</th>
+          </tr></thead>
+          <tbody>
+            ${d.cashflows.map(cf => `
+              <tr class="bt2-row">
+                <td class="cer-venc">${fD(cf.fecha)}</td>
+                <td class="bt2-td-num bt2-sub">${cf.dias_hasta_flujo}</td>
+                <td class="bt2-td-num" style="color:#9ecae1">${cf.capital_usd > 0 ? fU(cf.capital_usd) : '—'}</td>
+                <td class="bt2-td-num" style="color:#f97316">${fU(cf.interes_usd)}</td>
+                <td class="bt2-td-num" style="font-weight:700">${fU(cf.cashflow_total_usd)}</td>
+                <td class="bt2-td-num bt2-sub">${cf.valor_presente != null ? fU(cf.valor_presente) : '—'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`
+    : `<p style="color:var(--text-muted);font-family:var(--font-mono);font-size:.75rem;padding:10px 0">Sin cashflows futuros.</p>`;
+
+  // Body completo
+  const body = document.getElementById('ons-detail-body');
+  if (!body) return;
+  body.innerHTML = `
+    <div class="ons-detail-metrics">${metricsHtml}</div>
+
+    <div class="ons-detail-cf-layout">
+      <div>
+        <div class="ons-detail-sec">CASHFLOWS FUTUROS (USD / 100 VN)</div>
+        ${cfTable}
+      </div>
+      <div>
+        <div class="ons-detail-sec">GRÁFICO DE CASHFLOWS</div>
+        <div id="ons-detail-chart" style="height:268px;width:100%"></div>
+      </div>
+    </div>
+
+    <div class="bcc-card" style="margin-top:12px">
+      <div class="bcc-card-title">INTERPRETACIÓN AUTOMÁTICA</div>
+      <div class="bcc-card-body">
+        <p class="bcc-note" style="line-height:1.9">${_onsInterpretation(d)}</p>
+        <p class="bcc-note" style="margin-top:8px;color:var(--bt2-sub);font-size:.6rem">
+          TIR USD · convención 30/360 · precio ARS / MEP${d.mep ? ' ($'+Number(d.mep).toLocaleString('es-AR',{minimumFractionDigits:0})+')' : ''}.
+          Fuente: BD ONs.xlsx + data912.
+        </p>
+      </div>
+    </div>`;
+
+  // ECharts stacked bar — inicializar después de que el DOM sea visible
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      const chartEl = document.getElementById('ons-detail-chart');
+      if (chartEl && d.cashflows && d.cashflows.length) {
+        _onsRenderCFChart(chartEl, d.cashflows);
+      }
+    }, 50);
+  });
+}
+
+function _onsRenderCFChart(el, cashflows) {
+  const ex = echarts.getInstanceByDom(el);
+  if (ex) ex.dispose();
+  const chart = echarts.init(el, 'dcf');
+  const mono  = "'JetBrains Mono',monospace";
+
+  const labels   = cashflows.map(cf => cf.fecha.split('-').reverse().join('/'));
+  const capitals = cashflows.map(cf => cf.capital_usd  || 0);
+  const interests= cashflows.map(cf => cf.interes_usd  || 0);
+
+  chart.setOption({
+    tooltip: {
+      trigger: 'axis', axisPointer: { type: 'shadow' },
+      backgroundColor: '#0d1424', borderColor: 'rgba(255,255,255,0.12)', borderWidth: 1, padding: [8, 12],
+      formatter: params => {
+        const idx = params[0]?.dataIndex;
+        const cf  = cashflows[idx];
+        if (!cf) return '';
+        return `<div style="font-family:${mono};font-size:11px;min-width:160px">
+          <b style="color:var(--bt2-accent)">${cf.fecha.split('-').reverse().join('/')}</b>
+          <div style="margin-top:4px">
+            <span style="color:#9ecae1">Capital: ${cf.capital_usd > 0 ? Number(cf.capital_usd).toFixed(4).replace('.',',') : '—'}</span><br>
+            <span style="color:#f97316">Interés: ${Number(cf.interes_usd).toFixed(4).replace('.',',')}</span><br>
+            <b>Total: ${Number(cf.cashflow_total_usd).toFixed(4).replace('.',',')}</b>
+          </div>
+        </div>`;
+      },
+    },
+    legend: {
+      data: ['Capital', 'Interés'],
+      textStyle: { color: '#94a3b8', fontFamily: mono, fontSize: 10 },
+      top: 0, right: 8,
+    },
+    grid: { left: 10, right: 10, top: 28, bottom: 30, containLabel: true },
+    xAxis: {
+      type: 'category', data: labels,
+      axisLabel: { color: '#64748b', fontFamily: mono, fontSize: 9, rotate: labels.length > 6 ? 30 : 0 },
+      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: 'value', name: 'USD/100 VN', nameLocation: 'end', nameGap: 6,
+      nameTextStyle: { color: '#64748b', fontFamily: mono, fontSize: 9, align: 'left' },
+      axisLabel: { color: '#64748b', fontFamily: mono, fontSize: 9, formatter: v => v.toFixed(1) },
+      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
+      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)', type: 'dashed' } },
+    },
+    series: [
+      {
+        name: 'Capital', type: 'bar', stack: 'cf',
+        data: capitals, barMaxWidth: 48,
+        itemStyle: { color: '#9ecae1', opacity: 0.9 },
+      },
+      {
+        name: 'Interés', type: 'bar', stack: 'cf',
+        data: interests, barMaxWidth: 48,
+        itemStyle: { color: '#f97316', opacity: 0.9 },
+      },
+    ],
+  });
+
+  new ResizeObserver(() => chart.resize()).observe(el);
+}
+
+function _onsInterpretation(d) {
+  const fT = v => v != null ? (v >= 0 ? '+' : '') + Number(v).toFixed(2).replace('.', ',') + '%' : null;
+  const fD = s => s ? s.split('-').reverse().join('/') : null;
+  const parts = [];
+
+  if (d.ytm != null) {
+    const nivel = d.ytm >= 9 ? 'alta' : d.ytm >= 5 ? 'moderada' : d.ytm >= 2 ? 'baja' : 'muy baja';
+    const tirCol = d.ytm >= 5 ? '#22c55e' : d.ytm < 0 ? '#ef4444' : '#f97316';
+    parts.push(`La ON <b>${d.ticker}</b> presenta TIR estimada en USD de <b style="color:${tirCol}">${fT(d.ytm)}</b> (nivel ${nivel}).`);
+  }
+
+  if (d.duration != null) {
+    const sens = d.duration < 1 ? 'baja' : d.duration < 2.5 ? 'moderada' : 'alta';
+    parts.push(`Duration de <b>${Number(d.duration).toFixed(2).replace('.', ',')} años</b> implica sensibilidad <b>${sens}</b> ante variaciones de tasa.`);
+  }
+
+  if (d.proximo_pago) {
+    const cfParts = [];
+    if (d.interes_proximo_pago > 0)
+      cfParts.push(`interés <b>USD ${Number(d.interes_proximo_pago).toFixed(4).replace('.', ',')}</b>`);
+    if (d.amort_proximo_pago > 0)
+      cfParts.push(`capital <b>USD ${Number(d.amort_proximo_pago).toFixed(4).replace('.', ',')}</b>`);
+    if (cfParts.length)
+      parts.push(`Próximo flujo: <b>${fD(d.proximo_pago)}</b> — ${cfParts.join(' + ')} cada 100 VN.`);
+  }
+
+  if (d.paridad_mep != null) {
+    const col  = d.paridad_mep < 0 ? '#22c55e' : '#ef4444';
+    const desc = d.paridad_mep < -5
+      ? 'cotiza <b>con descuento</b> — potencial de apreciación hacia la par'
+      : d.paridad_mep > 5
+        ? 'cotiza <b>con prima</b> sobre el valor teórico'
+        : 'cotiza <b>cerca de la par</b>';
+    parts.push(`Paridad (MEP): <b style="color:${col}">${fT(d.paridad_mep)}</b> vs valor teórico — ${desc}.`);
+  }
+
+  if (d.valor_teorico != null)
+    parts.push(`Valor teórico: <b>USD ${Number(d.valor_teorico).toFixed(4).replace('.', ',')}</b> / 100 VN (capital pendiente + cupón corrido).`);
+
+  if (d.dias_vencimiento != null && d.dias_vencimiento <= 90)
+    parts.push(`<span style="color:#fbbf24">⚠ <b>Vencimiento en ${d.dias_vencimiento} días</b> — cotización y liquidez pueden volverse más volátiles.</span>`);
+
+  return parts.length
+    ? parts.join(' ')
+    : 'Completá los datos de mercado para ver la interpretación.';
 }
 
 // ── Errores ────────────────────────────────────────────────────────────────

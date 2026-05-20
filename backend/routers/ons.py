@@ -30,6 +30,23 @@ async def get_tabla(dcf_session: Optional[str] = Cookie(default=None)):
         )
 
 
+@router.get("/detalle/{ticker}")
+async def get_detalle(ticker: str, dcf_session: Optional[str] = Cookie(default=None)):
+    """Detalle completo de un ticker: métricas, cashflows, valor teórico, paridad."""
+    require_auth(dcf_session)
+    try:
+        data = await svc.get_detalle_ticker(ticker)
+        if data.get("status") == "NOT_FOUND":
+            return JSONResponse(status_code=404, content=data)
+        return data
+    except Exception as e:
+        logger.error("[ons/detalle] Error para %s: %s", ticker, e, exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"ticker": ticker, "error": str(e), "detail": "Error calculando detalle"},
+        )
+
+
 @router.get("/ping")
 async def ping(dcf_session: Optional[str] = Cookie(default=None)):
     """

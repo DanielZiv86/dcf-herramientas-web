@@ -151,6 +151,59 @@ def _normalize_leg(val) -> str:
     return "NY" if "NY" in s or "NEW" in s else "AR"
 
 
+def _to_d_ticker(ticker: str) -> Optional[str]:
+    """ARC1O → ARC1D (especie D = precio USD de mercado)."""
+    t = str(ticker).strip().upper()
+    if t.endswith("O") and len(t) >= 2:
+        return t[:-1] + "D"
+    return None
+
+
+def _infer_periodicidad(dates: list) -> str:
+    """Infiere frecuencia de pago a partir de gaps 30/360."""
+    ts = sorted([pd.Timestamp(d) for d in dates if pd.notna(d)])
+    if len(ts) < 2:
+        return "Bullet"
+    diffs = [_days_30_360(ts[i - 1], ts[i]) for i in range(1, len(ts))]
+    med = float(np.median(diffs))
+    if 25  <= med <= 35:  return "Mensual"
+    if 80  <= med <= 100: return "Trimestral"
+    if 170 <= med <= 190: return "Semestral"
+    if 350 <= med <= 370: return "Anual"
+    return "Irregular"
+
+
+def _calc_valor_teorico(group: pd.DataFrame, settle: pd.Timestamp) -> dict:
+    """
+    Capital pendiente, interés pendiente, cupón corrido y valor teórico.
+    Base: USD por 100 VN. Replicado de Streamlit ons_ytm_data.valor_teorico_ticker().
+    """
+    g = group.copy()
+    g["date"] = pd.to_datetime(g["date"])
+    future = g[g["date"] > settle].copy()
+    past   = g[g["date"] <= settle].copy()
+
+    cap_pend = float(future["Principal"].sum()) if not future.empty else 0.0
+    int_pend = float(future["Int."].sum())      if not future.empty else 0.0
+
+    cupon_corrido = 0.0
+    if not future.empty and not past.empty:
+        next_dt   = future["date"].min()
+        last_dt   = past["date"].max()
+        next_int  = float(future.loc[future["date"] == next_dt, "Int."].sum())
+        period_d  = _days_30_360(last_dt, next_dt)
+        elapsed_d = _days_30_360(last_dt, settle)
+        if period_d > 0 and elapsed_d > 0:
+            cupon_corrido = next_int * (elapsed_d / period_d)
+
+    return {
+        "capital_pendiente": round(cap_pend, 4),
+        "interes_pendiente": round(int_pend, 4),
+        "cupon_corrido":     round(cupon_corrido, 4),
+        "valor_teorico":     round(cap_pend + cupon_corrido, 4),
+    }
+
+
 # ── Price / MEP fetching ─────────────────────────────────────────────────────
 
 async def _fetch_mep() -> float:
@@ -370,3 +423,164 @@ async def get_ytm_table() -> list[dict]:
     ok_count = sum(1 for r in rows if r.get("status") == "OK")
     logger.info("[ons] Tabla lista: %d filas | %d OK | MEP=%.2f", len(rows), ok_count, mep)
     return rows
+
+
+# ── Detalle por ticker ───────────────────────────────────────────────────────
+
+async def get_detalle_ticker(ticker: str) -> dict:
+    """
+    Detalle completo de un ticker: métricas, cashflows futuros, valor teórico.
+    Replica la lógica de Streamlit _render_detail() + valor_teorico_ticker().
+    """
+    ticker = str(ticker).strip().upper()
+
+    try:
+        cf_df = load_bd_ons()
+    except Exception as e:
+        return {"ticker": ticker, "status": "BD_ERROR", "error": str(e), "cashflows": []}
+
+    group = cf_df[cf_df["ticker"] == ticker].copy()
+    if group.empty:
+        return {"ticker": ticker, "status": "NOT_FOUND", "cashflows": []}
+
+    today   = pd.Timestamp.today().normalize()
+    group["date"] = pd.to_datetime(group["date"])
+    future  = group[group["date"] > today].sort_values("date")
+
+    if future.empty:
+        return {"ticker": ticker, "status": "NO_FUTURE_CASHFLOWS", "cashflows": []}
+
+    # ── Metadata desde BD ───────────────────────────────────────────────────
+    legislacion = _normalize_leg(
+        group["legislacion"].dropna().iloc[0]
+        if "legislacion" in group.columns and group["legislacion"].notna().any()
+        else None
+    )
+    lamina_minima = None
+    if "lamina_minima" in group.columns and group["lamina_minima"].notna().any():
+        try:
+            lamina_minima = int(float(str(group["lamina_minima"].dropna().iloc[0]).replace(",", ".")))
+        except Exception:
+            pass
+
+    cupon_decimal = None
+    if "Tasa de Cupon" in group.columns and group["Tasa de Cupon"].notna().any():
+        try:
+            cupon_decimal = float(group["Tasa de Cupon"].dropna().iloc[0])
+        except Exception:
+            pass
+
+    periodicidad  = _infer_periodicidad(future["date"].tolist())
+    maturity_ts   = future["date"].max()
+    next_cf_ts    = future["date"].min()
+    dias_vto      = (maturity_ts - today).days
+    dias_proximo  = (next_cf_ts  - today).days
+    next_int      = float(future.loc[future["date"] == next_cf_ts, "Int."].sum())
+    next_amort    = float(future.loc[future["date"] == next_cf_ts, "Principal"].sum())
+
+    vt = _calc_valor_teorico(group, today)
+
+    # ── Precios y MEP en paralelo ───────────────────────────────────────────
+    d_ticker = _to_d_ticker(ticker)
+    tickers_fetch = [ticker] + ([d_ticker] if d_ticker else [])
+
+    mep_res, prices_res = await asyncio.gather(
+        _fetch_mep(),
+        _fetch_prices(tickers_fetch),
+        return_exceptions=True,
+    )
+    mep    = mep_res    if isinstance(mep_res,    float) else 1250.0
+    prices = prices_res if isinstance(prices_res, dict)  else {}
+
+    # Precio ARS (ticker O)
+    ars_info   = prices.get(ticker, {})
+    price_ars  = float(ars_info.get("price_ars", np.nan))
+    pct_change = ars_info.get("pct_change")
+    volume     = ars_info.get("volume")
+    price_ars  = price_ars if np.isfinite(price_ars) and price_ars > 0 else None
+
+    # Precio USD via MEP (ARS / MEP)
+    price_usd_mep = (price_ars / mep) if (price_ars and mep > 0) else None
+
+    # Precio USD ticker D (IOL / data912 a veces devuelve ×100 → si >1000, /100)
+    price_usd_d = None
+    if d_ticker and d_ticker in prices:
+        raw_d = prices[d_ticker].get("price_ars")
+        if raw_d is not None:
+            try:
+                raw_d = float(raw_d)
+                if np.isfinite(raw_d) and raw_d > 0:
+                    price_usd_d = raw_d / 100.0 if raw_d > 1000 else raw_d
+            except Exception:
+                pass
+
+    # ── YTM y Duration ──────────────────────────────────────────────────────
+    cfs   = future["cf"].astype(float).tolist()
+    dates = [today] + future["date"].tolist()
+    price_for_ytm = price_usd_mep or price_usd_d or np.nan
+
+    ytm     = _solve_ytm(cfs, dates, price_for_ytm) if np.isfinite(price_for_ytm) else np.nan
+    dur     = _macaulay_duration(cfs, dates, ytm)
+    dur_mod = dur / (1.0 + ytm / 2.0) if (np.isfinite(dur) and np.isfinite(ytm) and ytm > -1) else np.nan
+
+    # Paridades: (precio / valor_teorico - 1) × 100
+    vt_v = vt["valor_teorico"]
+    par_mep = ((price_usd_mep / vt_v) - 1) * 100 if (price_usd_mep and vt_v > 0) else None
+    par_d   = ((price_usd_d   / vt_v) - 1) * 100 if (price_usd_d   and vt_v > 0) else None
+
+    def _r(v, dec=4):
+        if v is None: return None
+        try:
+            f = float(v)
+            return round(f, dec) if np.isfinite(f) else None
+        except Exception:
+            return None
+
+    # ── Cashflows futuros ───────────────────────────────────────────────────
+    cashflows = []
+    for _, row in future.iterrows():
+        days_to = (row["date"] - today).days
+        cf_total = float(row["cf"])
+        pv = (cf_total / (1 + ytm) ** (days_to / 365.0)
+              if np.isfinite(ytm) and days_to > 0 else None)
+        cashflows.append({
+            "fecha":               row["date"].strftime("%Y-%m-%d"),
+            "capital_usd":         _r(float(row["Principal"]), 4),
+            "interes_usd":         _r(float(row["Int."]),      4),
+            "cashflow_total_usd":  _r(cf_total,                4),
+            "dias_hasta_flujo":    days_to,
+            "valor_presente":      _r(pv,                      4),
+        })
+
+    return {
+        "ticker":               ticker,
+        "ticker_d":             d_ticker,
+        "legislacion":          legislacion,
+        "maturity":             maturity_ts.strftime("%Y-%m-%d"),
+        "periodicidad":         periodicidad,
+        "lamina_minima":        lamina_minima,
+        "cupon_pct":            round(cupon_decimal * 100, 4) if cupon_decimal is not None else None,
+        "dias_vencimiento":     dias_vto,
+        "proximo_pago":         next_cf_ts.strftime("%Y-%m-%d"),
+        "dias_proximo_pago":    dias_proximo,
+        "interes_proximo_pago": _r(next_int,  4),
+        "amort_proximo_pago":   _r(next_amort, 4),
+        "capital_pendiente":    vt["capital_pendiente"],
+        "interes_pendiente":    vt["interes_pendiente"],
+        "cupon_corrido":        vt["cupon_corrido"],
+        "valor_teorico":        vt["valor_teorico"],
+        "price_ars":            _r(price_ars, 2),
+        "price_usd_mep":        _r(price_usd_mep, 4),
+        "price_usd_d":          _r(price_usd_d, 4),
+        "mep":                  round(float(mep), 2),
+        "ytm":                  _r(ytm * 100 if np.isfinite(ytm) else None, 2),
+        "duration":             _r(dur, 4)     if np.isfinite(dur) else None,
+        "modified_duration":    _r(dur_mod, 4) if np.isfinite(dur_mod) else None,
+        "paridad_mep":          _r(par_mep, 2),
+        "paridad_d":            _r(par_d,   2),
+        "pct_change":           _r(pct_change, 2),
+        "volumen":              volume,
+        "cashflows":            cashflows,
+        "status":               "OK",
+        "errors":               [],
+    }

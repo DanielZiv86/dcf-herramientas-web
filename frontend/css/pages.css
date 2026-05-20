@@ -964,6 +964,69 @@
   margin-bottom: 4px;
 }
 
+/* ── Modal detalle ONs ───────────────────────────────────────────────────── */
+.ons-detail-wide {
+  max-width: 920px !important;
+  width: 92vw;
+}
+.ons-detail-metrics {
+  padding: 0;
+}
+.ons-detail-sec {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--text-muted);
+  border-bottom: 1px solid rgba(148,163,184,0.06);
+  padding-bottom: 5px;
+  margin: 14px 0 8px;
+}
+.ons-detail-grid4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.ons-detail-mi {
+  background: var(--bg-elevated, #162032);
+  border: 1px solid rgba(148,163,184,0.06);
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+.ons-detail-mi-label {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: 3px;
+}
+.ons-detail-mi-val {
+  font-family: var(--font-mono);
+  font-size: .85rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.ons-detail-mi-sub {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.ons-detail-cf-layout {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr;
+  gap: 14px;
+  margin-top: 12px;
+}
+@media (max-width: 860px) {
+  .ons-detail-grid4 { grid-template-columns: repeat(2, 1fr); }
+  .ons-detail-cf-layout { grid-template-columns: 1fr; }
+  .ons-detail-wide { width: 96vw; }
+}
+
 /* ─── CER ────────────────────────────────────────────────────────────────── */
 .cer-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
 
