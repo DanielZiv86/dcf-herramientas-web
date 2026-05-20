@@ -171,12 +171,16 @@ function _cerRenderTable(data) {
       <span>${fmtVol(d.volumen)}</span>
       <div class="cer-vol-bar-bg"><div class="cer-vol-bar-fill" style="width:${volPct}%"></div></div>
     </div>`;
-    // near_maturity: fila atenuada, ticker en naranja, TIR sin heatmap
-    const rowStyle = nm ? ' style="opacity:0.55"' : '';
-    const tkClass  = nm ? 'bt2-td-ticker cer-tk-nm bond-clickable' : 'bt2-td-ticker cer-tk bond-clickable';
-    const tkBadge  = nm ? ` <span class="cer-nm-badge" title="Pago determinado, opera como descuento de corto plazo">VENC.</span>` : '';
-    const tirCell  = nm
-      ? `<td class="bt2-td-num bt2-sub" style="font-weight:700">${fmtPct(d.tir_real)}</td>`
+    // near_maturity: fila atenuada, ticker gris, TIR muestra valor nominal (convencion mercado)
+    const rowStyle  = nm ? ' style="opacity:0.60"' : '';
+    const tkClass   = nm ? 'bt2-td-ticker cer-tk-nm bond-clickable' : 'bt2-td-ticker cer-tk bond-clickable';
+    const tkBadge   = nm ? ` <span class="cer-nm-badge" title="Pago determinado — opera como descuento de corto plazo">VENC.</span>` : '';
+    // Para near_maturity: mostrar tir_nm (nominal, convencion mercado) en lugar de tir_real
+    const tirVal    = nm ? (d.tir_nm ?? d.tir_real) : d.tir_real;
+    const tirCell   = nm
+      ? `<td class="bt2-td-num bt2-sub" style="font-weight:700"
+            title="TIR nominal (retorno en pesos incluyendo CER carry). TIR real: ${fmtPct(d.tir_real)}"
+            >${fmtPct(tirVal)}</td>`
       : `<td class="bt2-td-num ${tirCls(d.tir_real)}" style="font-weight:700"><span class="${tirTxtC(d.tir_real)}">${fmtPct(d.tir_real)}</span></td>`;
     return `
     <tr class="bt2-row"${rowStyle}>
@@ -345,9 +349,11 @@ function _cerRenderChart(data) {
             const d = nearM[p.dataIndex];
             if (!d) return '';
             const row = (l, v) => `<div style="display:flex;justify-content:space-between;gap:16px;margin-top:2px"><span style="color:#7a8fa6">${l}</span><span>${v}</span></div>`;
-            let h = `<div style="font-family:${mono};font-size:11.5px;min-width:200px">`;
-            h += `<div style="font-size:13px;font-weight:700;margin-bottom:4px;color:#94a3b8">${d.ticker}</div>`;
-            h += `<div style="font-size:.68rem;color:#f97316;margin-bottom:6px">Pago determinado — opera como descuento de c/p</div>`;
+            let h = `<div style="font-family:${mono};font-size:11.5px;min-width:210px">`;
+            h += `<div style="font-size:13px;font-weight:700;margin-bottom:4px;color:#94a3b8">${d.ticker} <span style="font-size:.7rem;color:#f97316">VENC.</span></div>`;
+            h += `<div style="font-size:.65rem;color:#f97316;margin-bottom:6px">Pago determinado — opera como descuento de c/p</div>`;
+            h += row('TIR nominal', `<span style="color:#94a3b8">${fmtT(d.tir_nm ?? d.tir_real)}</span>`);
+            h += row('TIR real YTM', `<span style="color:#475569">${fmtT(d.tir_real)}</span>`);
             h += row('Precio', fmtP(d.precio));
             h += row('Paridad', d.paridad != null ? d.paridad.toFixed(2).replace('.', ',') + '%' : '—');
             h += row('Días', d.dias != null ? d.dias.toString() : '—');
@@ -421,7 +427,12 @@ async function _openCerDetail(ticker) {
           ${mi('PRECIO',    fP(d.precio))}
           ${mi('PARIDAD',   fPar(d.paridad), d.paridad != null && d.paridad < 100 ? 'color:#22c55e' : d.paridad != null && d.paridad > 101 ? 'color:#f97316' : '')}
           ${mi('TNA',       fT(d.tna))}
-          ${mi('TIR REAL',  fT(d.tir_real), `color:${tirColor};font-weight:700`)}
+          ${isNM && d.tir_nm != null
+              ? mi('TIR NOMINAL', fT(d.tir_nm), 'font-weight:700;color:#94a3b8')
+              : mi('TIR REAL',    fT(d.tir_real), `color:${tirColor};font-weight:700`)}
+          ${isNM && d.tir_nm != null
+              ? mi('TIR REAL YTM', fT(d.tir_real), 'font-size:.8em;color:#475569')
+              : ''}
           ${mi('TEM',       fT(d.tem))}
           ${mi('DURATION',  fDu(d.duration) + ' años')}
           ${mi('VENC.',     fDa(d.vencimiento))}

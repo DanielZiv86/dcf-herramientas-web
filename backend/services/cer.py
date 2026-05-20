@@ -1090,15 +1090,65 @@ async def get_cer_table_v3() -> list[dict]:
         tir_pct = round(float(tir_real * 100), 2) if not np.isnan(tir_real) else None
         dur_val = round(float(duration), 2)         if not np.isnan(duration) else None
 
-        # TNA y TEM
+        # TNA y TEM desde TIR real (instrumentos normales)
         tem_val = tna_val = None
-        if tir_pct is not None:
+        if not np.isnan(tir_real):
             try:
                 tem_d   = (1.0 + tir_real) ** (1.0 / 12.0) - 1.0
                 tem_val = round(float(tem_d * 100), 2)
                 tna_val = round(float(tem_d * 12 * 100), 2)
             except Exception:
                 pass
+
+        dias_val = (maturity_date - today).days
+        is_nm    = dias_val <= NEAR_MATURITY_DIAS
+
+        # Para near_maturity: TIR NOMINAL (convencion de mercado).
+        # Para instrumentos con <45 dias al vencimiento, el pago ya esta determinado
+        # y el mercado los opera como CER carry: el retorno es la tasa CER anualizada.
+        #
+        # Formula: TEM_nm = tasa diaria CER × 21bdays (mensual implicita del periodo)
+        #          TNA_nm = TEM × 12  |  TIR_nm = (1+TEM)^12 - 1
+        #
+        # La tasa diaria CER se deriva del crecimiento desde ref_settle hasta ref_maturity
+        # usando la serie CER extendida. Esto replica la convencion del benchmark.
+        tir_nm_pct: Optional[float] = None
+        if is_nm:
+            try:
+                ref_mat  = cal.get_reference_date("business_days_before:10", maturity_date)
+                cer_mat  = _cer_lookup(cer_series, ref_mat)
+                if cer_mat and cer_settle and cer_settle > 0 and cer_mat > 0:
+                    # Dias entre ref_settle y ref_maturity (calendario)
+                    days_span = (ref_mat - ref_settle).days
+                    if days_span > 0:
+                        # Tasa diaria implicita en el periodo ref_settle → ref_maturity
+                        daily_cer = (cer_mat / cer_settle) ** (1.0 / days_span) - 1.0
+                    else:
+                        # Si ref_mat ≤ ref_settle (instrumento muy corto), usar tasa de serie
+                        # Calcular desde últimos 21 bdays de la serie oficial
+                        tail_val  = float(cer_series.iloc[-1])
+                        prev_idx  = max(0, len(cer_series) - 22)
+                        prev_val  = float(cer_series.iloc[prev_idx])
+                        n_bdays   = len(cer_series) - 1 - prev_idx
+                        daily_cer = (tail_val / prev_val) ** (1.0 / max(n_bdays, 1)) - 1.0
+
+                    # TEM mensual (21 dias habiles por mes)
+                    tem_nm  = (1.0 + daily_cer) ** 21 - 1.0
+                    tna_nm  = tem_nm * 12.0
+                    tir_nm  = (1.0 + tem_nm) ** 12.0 - 1.0
+
+                    if np.isfinite(tir_nm) and np.isfinite(tem_nm):
+                        tir_nm_pct = round(float(tir_nm * 100), 2)
+                        tem_val    = round(float(tem_nm * 100), 2)
+                        tna_val    = round(float(tna_nm * 100), 2)
+                        logger.info(
+                            "[cer_v3] %s near_maturity | ref_mat=%s CER=%.4f | "
+                            "daily=%.4f%% | TEM=%.2f%% | TIR_nm=%.2f%%",
+                            ticker, ref_mat, cer_mat,
+                            daily_cer * 100, tem_nm * 100, tir_nm * 100
+                        )
+            except Exception as e:
+                logger.warning("[cer_v3] %s near_maturity TIR_nm error: %s", ticker, e)
 
         # var_dia y volumen
         var_dia = price_info.get("pct_change")
@@ -1120,12 +1170,12 @@ async def get_cer_table_v3() -> list[dict]:
         except Exception:
             pass
 
-        dias_val = (maturity_date - today).days
         rows.append({
             "ticker":        ticker,
             "tipo":          tipo,
             "precio":        round(float(price), 4),
-            "tir_real":      tir_pct,
+            "tir_real":      tir_pct,      # TIR real YTM (puede ser negativo cerca del par)
+            "tir_nm":        tir_nm_pct,   # TIR nominal solo para near_maturity
             "tir_nominal":   None,
             "duration":      dur_val,
             "vencimiento":   maturity_date.strftime("%Y-%m-%d"),
@@ -1135,9 +1185,10 @@ async def get_cer_table_v3() -> list[dict]:
             "tna":           tna_val,
             "tem":           tem_val,
             "volumen":       volumen_val,
-            # near_maturity: el pago esta esencialmente determinado.
-            # El mercado lo opera como descuento simple, no como real yield CER.
-            "near_maturity": dias_val <= NEAR_MATURITY_DIAS,
+            "near_maturity": is_nm,
+            # tir_nm: TIR nominal para near_maturity (convencion mercado).
+            # En el frontend se muestra en lugar de tir_real cuando near_maturity=True.
+            "tir_nm":        tir_nm_pct,
         })
 
         logger.debug("[cer_v3] %-8s | ratio=%.4f | pr=%.4f | TIR=%s%%",
