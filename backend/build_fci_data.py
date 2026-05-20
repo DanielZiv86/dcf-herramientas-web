@@ -167,19 +167,28 @@ def build(fondos_path: Path, vcp_path: Path) -> list[dict]:
         else:
             monthly_returns = [None] * len(date_cols)
 
+        # Validar que el fondo tenga al menos un dato útil:
+        # rendimiento puntual o al menos 2 meses de histórico no nulos.
+        # Fondos sin ningún dato = inactivos/discontinuados → no incluir.
+        has_puntual = any(v is not None for v in [rend_mes, rend_year, rend_ytd])
+        valid_hist  = sum(1 for v in monthly_returns if v is not None)
+        if not has_puntual and valid_hist < 2:
+            continue   # fondo inactivo o sin datos — omitir
+
         rows.append({
-            "fondo_id":    fondo_id,
-            "clase_id":    clase_id,
-            "nombre":      fondo_nombre,
-            "clase_nombre": clase_nombre,
-            "alyc":        alyc,
-            "tipo":        tipo,
-            "moneda":      moneda,
-            "rend_dia":    None,   # requiere llamada live a /ficha
-            "rend_mes":    rend_mes,
-            "rend_year":   rend_year,
-            "rend_ytd":    rend_ytd,
+            "fondo_id":        fondo_id,
+            "clase_id":        clase_id,
+            "nombre":          fondo_nombre,
+            "clase_nombre":    clase_nombre,
+            "alyc":            alyc,
+            "tipo":            tipo,
+            "moneda":          moneda,
+            "rend_dia":        None,   # requiere llamada live a /ficha
+            "rend_mes":        rend_mes,
+            "rend_year":       rend_year,
+            "rend_ytd":        rend_ytd,
             "monthly_returns": monthly_returns,
+            "valid_months":    valid_hist,   # nro de meses con datos (útil en frontend)
         })
 
     rows.sort(key=lambda r: (r["alyc"], r["tipo"], -(r["rend_year"] or -9999)))

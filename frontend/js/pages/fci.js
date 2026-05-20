@@ -36,6 +36,32 @@ let _fciAllData = [];  // cache local del último fetch
 
 const _FCI_ALYCS = ['Balanz', 'IOL', 'Cocos Capital'];
 
+// Nro mínimo de meses con datos para considerar un fondo "con histórico"
+const FCI_MIN_HISTORY_MONTHS = 2;
+
+/**
+ * Un FCI tiene datos válidos si cumple al menos UNA de:
+ *   - tiene rend_mes, rend_year o rend_ytd no nulo (dato puntual)
+ *   - tiene ≥ FCI_MIN_HISTORY_MONTHS meses con retornos no nulos
+ * Fondos que no cumplen ninguna = inactivos/discontinuados → se ocultan.
+ */
+function _fciHasValidData(f) {
+  const hasPuntual = f.rend_mes != null || f.rend_year != null || f.rend_ytd != null || f.rend_dia != null;
+  const validMonths = (f.monthly_returns || []).filter(v => v !== null && v !== undefined).length;
+  const hasHistory  = validMonths >= FCI_MIN_HISTORY_MONTHS;
+  return hasPuntual || hasHistory;
+}
+
+/**
+ * Un FCI tiene histórico suficiente para el gráfico de líneas.
+ * Si devuelve false, el fondo puede mostrarse en tabla pero NO se auto-selecciona
+ * en el comparador ni se incluye en el selector por defecto.
+ */
+function _fciHasValidHistory(f) {
+  const validMonths = (f.monthly_returns || []).filter(v => v !== null && v !== undefined).length;
+  return validMonths >= FCI_MIN_HISTORY_MONTHS;
+}
+
 const _FCI_TIPOS = [
   '', 'Money Market', 'Renta Fija', 'Renta Variable',
   'Renta Mixta', 'Retorno Total', 'PyMEs / Infra',
@@ -154,9 +180,13 @@ async function _fciRenderRendimientos(container) {
 
       const resp = await api.fci.fondos(params);
       // La API ahora devuelve {date_cols, fondos} en lugar de array plano
-      _fciAllData = Array.isArray(resp) ? resp : (resp?.fondos || []);
-      console.log('[FCI] Fondos recibidos:', _fciAllData.length,
-        _fciAllData.slice(0,2).map(f => ({nombre:f.nombre, tipo:f.tipo, rend_year:f.rend_year})));
+      const rawFondos = Array.isArray(resp) ? resp : (resp?.fondos || []);
+      _fciAllData = rawFondos.filter(_fciHasValidData);
+      const removed = rawFondos.length - _fciAllData.length;
+      console.log('[FCI] Fondos recibidos:', rawFondos.length,
+        '| válidos:', _fciAllData.length, '| excluidos (sin datos):', removed);
+      if (removed > 0)
+        console.log('[FCI] Excluidos:', rawFondos.filter(f => !_fciHasValidData(f)).map(f => f.clase_nombre));
 
       if (!_fciAllData.length) {
         if (wrap) wrap.innerHTML = `
@@ -241,8 +271,8 @@ function _fciRenderTable(wrap, fondos) {
   const countEl = document.getElementById('fci-count');
 
   if (!fondos.length) {
-    wrap.innerHTML = `<div style="padding:18px 14px;font-family:var(--font-mono);color:var(--text-muted);font-size:.78rem">
-      Sin fondos para los filtros seleccionados.</div>`;
+    wrap.innerHTML = `<div style="padding:18px 14px;font-family:var(--font-mono);color:var(--bt2-sub);font-size:.78rem">
+      No hay fondos activos con información disponible para los filtros seleccionados.</div>`;
     if (countEl) countEl.textContent = '';
     return;
   }
@@ -509,12 +539,19 @@ async function _fciRenderComparativo(container) {
       cmp.selected = cmp.selected.filter(s => availableNames.has(s));
     }
 
-    // Auto-select top 5 if nothing selected
+    // Auto-select top 5 if nothing selected.
+    // Priorizar fondos con histórico (para que el gráfico de líneas tenga data).
+    // Fallback: fondos sin histórico pero con rendimiento puntual.
     if (!cmp.selected.length) {
-      const top5 = available
-        .filter(f => f.rend_year != null)
+      const withHist = available
+        .filter(f => _fciHasValidHistory(f) && f.rend_year != null)
         .sort((a, b) => (b.rend_year ?? -9999) - (a.rend_year ?? -9999))
         .slice(0, 5);
+      const fallback = available
+        .filter(f => !_fciHasValidHistory(f) && f.rend_year != null)
+        .sort((a, b) => (b.rend_year ?? -9999) - (a.rend_year ?? -9999))
+        .slice(0, 5 - withHist.length);
+      const top5 = [...withHist, ...fallback];
       cmp.selected = top5.map(f => f.clase_nombre);
     }
 
@@ -758,8 +795,13 @@ async function _fciRenderComparativo(container) {
   // ── Load data ─────────────────────────────────────────────────────────────
   try {
     const resp = await api.fci.fondos({});
-    cmp.allFunds  = Array.isArray(resp) ? resp : (resp?.fondos || []);
+    const rawAll  = Array.isArray(resp) ? resp : (resp?.fondos || []);
+    cmp.allFunds  = rawAll.filter(_fciHasValidData);
     cmp.dateCols  = Array.isArray(resp) ? [] : (resp?.date_cols || []);
+
+    console.log('[FCI comparativo] Fondos cargados:', rawAll.length,
+      '| válidos:', cmp.allFunds.length,
+      '| excluidos:', rawAll.length - cmp.allFunds.length);
 
     console.log('[FCI comparativo] Fondos cargados:', cmp.allFunds.length,
       '| Fechas:', cmp.dateCols.length);
