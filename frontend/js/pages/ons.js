@@ -259,10 +259,10 @@ function _onsRenderTable(data) {
 
   const rows = filtered.map(d => `
     <tr class="bt2-row">
-      <td class="bt2-td-ticker"
-          style="color:var(--bt2-accent);font-weight:700;cursor:pointer"
+      <td class="bt2-td-ticker bond-clickable"
+          style="color:var(--bt2-accent);font-weight:700"
           onclick="_openOnsDetail('${d.ticker}')"
-          title="Ver detalle de ${d.ticker}">${d.ticker}</td>
+          title="Click para ver detalle — ${d.ticker}">${d.ticker}</td>
       <td class="bt2-td-num cer-venc">${fDate(d.maturity)}</td>
       <td class="bt2-td-num" style="color:#64748b">${fDias(d.dias_vencimiento)}</td>
       <td class="bt2-td-num">${fUSD(d.price_usd)}</td>
@@ -295,10 +295,15 @@ function _onsChartDuration(data, el) {
   const valid = data.filter(d => d.ytm != null && d.duration != null && d.duration > 0);
   if (!valid.length) { _onsChartEmpty(el); return; }
 
+  // Separar en dos series con colores fijos — ECharts 5 no soporta callbacks en
+  // label.color ni itemStyle.borderColor, solo en itemStyle.color
+  const nyData = valid.filter(d => d.legislacion === 'NY');
+  const arData = valid.filter(d => d.legislacion !== 'NY');
+
   const xVals = valid.map(d => d.duration);
   const yVals = valid.map(d => d.ytm);
   const xPad  = Math.max((Math.max(...xVals) - Math.min(...xVals)) * 0.12, 0.3);
-  const yPad  = Math.max((Math.max(...yVals) - Math.min(...yVals)) * 0.18, 1.0);
+  const yPad  = Math.max((Math.max(...yVals) - Math.min(...yVals)) * 0.20, 1.5);
   const mono  = "'JetBrains Mono',monospace";
 
   const existing = echarts.getInstanceByDom(el);
@@ -308,80 +313,93 @@ function _onsChartDuration(data, el) {
 
   const trend = valid.length >= 3 ? _quadReg(valid.map(d => [d.duration, d.ytm])) : null;
 
+  // Tooltip compartido — usa el array correcto según el nombre de serie
+  const makeTooltip = (arr) => p => {
+    const d = arr[p.dataIndex];
+    if (!d) return '';
+    const row = (l, v) => `<div style="display:flex;justify-content:space-between;gap:14px;margin-top:2px">
+      <span style="color:#7a8fa6">${l}</span><span>${v}</span></div>`;
+    const fP  = v => v != null ? '$ ' + Number(v).toLocaleString('es-AR',{minimumFractionDigits:2}) : '—';
+    const fDt = s => s ? s.split('-').reverse().join('/') : '—';
+    let h = `<div style="font-family:${mono};font-size:11.5px;min-width:186px">`;
+    h += `<div style="font-size:13px;font-weight:700;margin-bottom:6px;color:var(--bt2-accent)">${d.ticker}</div>`;
+    const tirColor = d.ytm >= 9 ? '#22c55e' : d.ytm >= 5 ? '#84cc16' : d.ytm >= 2 ? '#f97316' : '#ef4444';
+    h += row('TIR USD',   `<span style="color:${tirColor};font-weight:700">${d.ytm.toFixed(2).replace('.', ',') + '%'}</span>`);
+    h += row('Duration',  d.duration.toFixed(2).replace('.', ',') + ' a');
+    h += row('Mod. Dur.', d.modified_duration != null ? d.modified_duration.toFixed(2).replace('.', ',') : '—');
+    h += row('P. USD',    fP(d.price_usd));
+    h += row('Cupón',     d.cupon != null ? d.cupon.toFixed(2).replace('.', ',') + '%' : '—');
+    h += row('Venc.',     fDt(d.maturity));
+    h += row('Ley',       d.legislacion || '—');
+    return h + '</div>';
+  };
+
+  // Serie scatter con colores fijos — sin callbacks problemáticos
+  const makeSeries = (name, arr, dotColor, labelColor) => ({
+    name,
+    type: 'scatter',
+    data: arr.map(d => [d.duration, d.ytm]),
+    symbolSize: 13,
+    clip: false,
+    itemStyle: { color: dotColor, opacity: 0.95 },
+    label: {
+      show: true,
+      fontFamily: mono, fontSize: 9.5, fontWeight: 700,
+      color: labelColor,
+      textBorderColor: '#050c17',
+      textBorderWidth: 3,
+      formatter: p => arr[p.dataIndex]?.ticker || '',
+      position: 'top', distance: 5,
+    },
+    tooltip: { formatter: makeTooltip(arr) },
+  });
+
   chart.setOption({
     tooltip: {
       trigger: 'item',
       backgroundColor: '#0d1424',
-      borderColor: 'rgba(255,255,255,0.12)',
+      borderColor: 'rgba(255,255,255,0.14)',
       borderWidth: 1,
       padding: [10, 14],
-      formatter: p => {
-        if (p.seriesType === 'line') return '';
-        const d = valid[p.dataIndex];
-        if (!d) return '';
-        const row = (l, v) => `<div style="display:flex;justify-content:space-between;gap:14px;margin-top:2px"><span style="color:#7a8fa6">${l}</span><span>${v}</span></div>`;
-        const fP = v => v != null ? '$ ' + Number(v).toLocaleString('es-AR',{minimumFractionDigits:2}) : '—';
-        const fD = s => s ? s.split('-').reverse().join('/') : '—';
-        let h = `<div style="font-family:${mono};font-size:11.5px;min-width:180px">`;
-        h += `<div style="font-size:13px;font-weight:700;margin-bottom:6px;color:var(--bt2-accent)">${d.ticker}</div>`;
-        h += row('TIR USD',   `<span style="color:${d.ytm >= 5 ? '#22c55e' : '#f97316'}">${d.ytm != null ? d.ytm.toFixed(2).replace('.', ',') + '%' : '—'}</span>`);
-        h += row('Duration',  d.duration != null ? d.duration.toFixed(2).replace('.', ',') + ' a' : '—');
-        h += row('Mod. Dur.', d.modified_duration != null ? d.modified_duration.toFixed(2).replace('.', ',') : '—');
-        h += row('P. USD',    fP(d.price_usd));
-        h += row('Cupón',     d.cupon != null ? d.cupon.toFixed(2).replace('.', ',') + '%' : '—');
-        h += row('Venc.',     fD(d.maturity));
-        h += row('Ley',       d.legislacion || '—');
-        return h + '</div>';
-      },
     },
-    grid: { left: 10, right: 14, top: 22, bottom: 38, containLabel: true },
+    legend: {
+      show: nyData.length > 0 && arData.length > 0,
+      data: ['Ley NY', 'Ley AR'],
+      textStyle: { color: '#94a3b8', fontFamily: mono, fontSize: 10 },
+      top: 2, right: 10,
+    },
+    grid: { left: 10, right: 14, top: nyData.length > 0 && arData.length > 0 ? 30 : 22, bottom: 38, containLabel: true },
     xAxis: {
       type: 'value', name: 'Duration (años)', nameLocation: 'middle', nameGap: 26,
       min: Math.max(0, +(Math.min(...xVals) - xPad).toFixed(2)),
       max: +(Math.max(...xVals) + xPad).toFixed(2),
-      nameTextStyle: { color: '#64748b', fontFamily: mono, fontSize: 10 },
-      axisLabel:  { color: '#64748b', fontFamily: mono, fontSize: 10 },
-      axisLine:   { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
-      splitLine:  { lineStyle: { color: 'rgba(255,255,255,0.05)', type: 'dashed' } },
+      nameTextStyle: { color: '#475569', fontFamily: mono, fontSize: 10 },
+      axisLabel:  { color: '#475569', fontFamily: mono, fontSize: 10 },
+      axisLine:   { lineStyle: { color: 'rgba(255,255,255,0.10)' } },
+      splitLine:  { lineStyle: { color: 'rgba(255,255,255,0.06)', type: 'dashed' } },
     },
     yAxis: {
       type: 'value', name: 'TIR USD (%)', nameLocation: 'end', nameGap: 6,
       min: +(Math.min(...yVals) - yPad).toFixed(1),
       max: +(Math.max(...yVals) + yPad).toFixed(1),
-      nameTextStyle: { color: '#64748b', fontFamily: mono, fontSize: 10, align: 'left' },
+      nameTextStyle: { color: '#475569', fontFamily: mono, fontSize: 10, align: 'left' },
       axisLabel: {
-        color: '#64748b', fontFamily: mono, fontSize: 10,
+        color: '#475569', fontFamily: mono, fontSize: 10,
         formatter: v => (v >= 0 ? '+' : '') + v.toFixed(1) + '%',
       },
-      axisLine:  { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
-      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)', type: 'dashed' } },
+      axisLine:  { lineStyle: { color: 'rgba(255,255,255,0.10)' } },
+      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)', type: 'dashed' } },
     },
     series: [
-      {
-        type: 'scatter',
-        data: valid.map(d => [d.duration, d.ytm]),
-        symbolSize: 11,
-        clip: false,
-        itemStyle: {
-          color: 'transparent',
-          borderColor: p => valid[p.dataIndex]?.legislacion === 'NY' ? '#9ecae1' : '#f28e2b',
-          borderWidth: 2,
-        },
-        label: {
-          show: true, fontFamily: mono, fontSize: 9, fontWeight: 700,
-          color: p => valid[p.dataIndex]?.legislacion === 'NY' ? '#9ecae1' : '#f28e2b',
-          textBorderColor: 'rgba(8,17,28,0.9)', textBorderWidth: 2,
-          formatter: p => valid[p.dataIndex]?.ticker || '',
-          position: 'top', distance: 6,
-        },
-      },
+      makeSeries('Ley NY', nyData, '#7ec8e3', '#c5e8f8'),
+      makeSeries('Ley AR', arData, '#f59e0b', '#fde68a'),
       ...(trend ? [{
-        type: 'line', data: trend, showSymbol: false, clip: true,
-        lineStyle: { color: '#f97316', type: 'dashed', width: 1.5, opacity: 0.45 },
+        name: 'Tendencia', type: 'line', data: trend,
+        showSymbol: false, clip: true,
+        lineStyle: { color: '#f97316', type: 'dashed', width: 1.8, opacity: 0.65 },
         tooltip: { show: false }, silent: true,
       }] : []),
     ],
-    legend: { show: false },
   });
 
   new ResizeObserver(() => chart.resize()).observe(el);
@@ -681,21 +699,21 @@ function _onsRenderDetailModal(ticker, d) {
       </div>`
     : `<p style="color:var(--text-muted);font-family:var(--font-mono);font-size:.75rem;padding:10px 0">Sin cashflows futuros.</p>`;
 
-  // Body completo
+  // Body completo — gráfico full-width ANTES de la tabla para visibilidad garantizada
   const body = document.getElementById('ons-detail-body');
   if (!body) return;
   body.innerHTML = `
     <div class="ons-detail-metrics">${metricsHtml}</div>
 
-    <div class="ons-detail-cf-layout">
-      <div>
-        <div class="ons-detail-sec">CASHFLOWS FUTUROS (USD / 100 VN)</div>
-        ${cfTable}
-      </div>
-      <div>
-        <div class="ons-detail-sec">GRÁFICO DE CASHFLOWS</div>
-        <div id="ons-detail-chart" style="height:268px;width:100%"></div>
-      </div>
+    <div>
+      <div class="ons-detail-sec">GRÁFICO DE CASHFLOWS FUTUROS (USD / 100 VN)</div>
+      <div id="ons-detail-chart"
+           style="height:300px;min-height:300px;width:100%;display:block;position:relative"></div>
+    </div>
+
+    <div>
+      <div class="ons-detail-sec">TABLA DE CASHFLOWS FUTUROS (USD / 100 VN)</div>
+      ${cfTable}
     </div>
 
     <div class="bcc-card" style="margin-top:12px">
@@ -709,14 +727,20 @@ function _onsRenderDetailModal(ticker, d) {
       </div>
     </div>`;
 
-  // ECharts stacked bar — inicializar después de que el DOM sea visible
+  // ECharts: inicializar con delay suficiente para que el DOM esté renderizado.
+  // 150ms cubre el reflow del flex/bcc-body. Se llama resize() inmediato
+  // para forzar recalculo de dimensiones en caso de contenedor con layout lazy.
   requestAnimationFrame(() => {
     setTimeout(() => {
       const chartEl = document.getElementById('ons-detail-chart');
-      if (chartEl && d.cashflows && d.cashflows.length) {
+      if (!chartEl) return;
+      if (d.cashflows && d.cashflows.length) {
         _onsRenderCFChart(chartEl, d.cashflows);
+      } else {
+        chartEl.innerHTML = `<p style="padding:20px;font-family:var(--font-mono);color:var(--text-muted);font-size:.78rem;text-align:center">
+          Sin cashflows futuros para este ticker.</p>`;
       }
-    }, 50);
+    }, 150);
   });
 }
 
@@ -733,17 +757,17 @@ function _onsRenderCFChart(el, cashflows) {
   chart.setOption({
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'shadow' },
-      backgroundColor: '#0d1424', borderColor: 'rgba(255,255,255,0.12)', borderWidth: 1, padding: [8, 12],
+      backgroundColor: '#0d1424', borderColor: 'rgba(255,255,255,0.14)', borderWidth: 1, padding: [8, 12],
       formatter: params => {
         const idx = params[0]?.dataIndex;
         const cf  = cashflows[idx];
         if (!cf) return '';
-        return `<div style="font-family:${mono};font-size:11px;min-width:160px">
+        return `<div style="font-family:${mono};font-size:11px;min-width:170px">
           <b style="color:var(--bt2-accent)">${cf.fecha.split('-').reverse().join('/')}</b>
-          <div style="margin-top:4px">
-            <span style="color:#9ecae1">Capital: ${cf.capital_usd > 0 ? Number(cf.capital_usd).toFixed(4).replace('.',',') : '—'}</span><br>
-            <span style="color:#f97316">Interés: ${Number(cf.interes_usd).toFixed(4).replace('.',',')}</span><br>
-            <b>Total: ${Number(cf.cashflow_total_usd).toFixed(4).replace('.',',')}</b>
+          <div style="margin-top:5px">
+            <span style="color:#9ecae1">&#9632; Capital: <b>${cf.capital_usd > 0 ? Number(cf.capital_usd).toFixed(4).replace('.',',') : '0,0000'}</b></span><br>
+            <span style="color:#f97316">&#9632; Interés: <b>${Number(cf.interes_usd).toFixed(4).replace('.',',')}</b></span><br>
+            <span style="color:#f1f5f9">&#9632; Total: <b>${Number(cf.cashflow_total_usd).toFixed(4).replace('.',',')}</b></span>
           </div>
         </div>`;
       },
@@ -751,36 +775,43 @@ function _onsRenderCFChart(el, cashflows) {
     legend: {
       data: ['Capital', 'Interés'],
       textStyle: { color: '#94a3b8', fontFamily: mono, fontSize: 10 },
-      top: 0, right: 8,
+      top: 4, right: 12,
+      itemGap: 16,
     },
-    grid: { left: 10, right: 10, top: 28, bottom: 30, containLabel: true },
+    grid: { left: 10, right: 10, top: 32, bottom: 36, containLabel: true },
     xAxis: {
       type: 'category', data: labels,
-      axisLabel: { color: '#64748b', fontFamily: mono, fontSize: 9, rotate: labels.length > 6 ? 30 : 0 },
-      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
+      axisLabel: {
+        color: '#64748b', fontFamily: mono, fontSize: 9,
+        rotate: labels.length > 8 ? 35 : labels.length > 5 ? 20 : 0,
+        interval: 0,
+      },
+      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.10)' } },
       splitLine: { show: false },
     },
     yAxis: {
-      type: 'value', name: 'USD/100 VN', nameLocation: 'end', nameGap: 6,
-      nameTextStyle: { color: '#64748b', fontFamily: mono, fontSize: 9, align: 'left' },
-      axisLabel: { color: '#64748b', fontFamily: mono, fontSize: 9, formatter: v => v.toFixed(1) },
-      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
-      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)', type: 'dashed' } },
+      type: 'value', name: 'USD / 100 VN', nameLocation: 'end', nameGap: 6,
+      nameTextStyle: { color: '#475569', fontFamily: mono, fontSize: 9, align: 'left' },
+      axisLabel: { color: '#475569', fontFamily: mono, fontSize: 9, formatter: v => v.toFixed(2) },
+      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.10)' } },
+      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)', type: 'dashed' } },
     },
     series: [
       {
         name: 'Capital', type: 'bar', stack: 'cf',
-        data: capitals, barMaxWidth: 48,
-        itemStyle: { color: '#9ecae1', opacity: 0.9 },
+        data: capitals, barMaxWidth: 56,
+        itemStyle: { color: '#7ec8e3', opacity: 0.92 },
       },
       {
         name: 'Interés', type: 'bar', stack: 'cf',
-        data: interests, barMaxWidth: 48,
-        itemStyle: { color: '#f97316', opacity: 0.9 },
+        data: interests, barMaxWidth: 56,
+        itemStyle: { color: '#f59e0b', opacity: 0.92 },
       },
     ],
   });
 
+  // Resize explícito para garantizar dimensiones correctas en contexto de modal
+  chart.resize();
   new ResizeObserver(() => chart.resize()).observe(el);
 }
 
