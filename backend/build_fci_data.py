@@ -158,12 +158,17 @@ def build(fondos_path: Path, vcp_path: Path) -> list[dict]:
             rend_year = _compound(serie, date_cols)
             rend_ytd  = _compound(serie, ytd_cols)
 
-        # Serie mensual para gráfico de líneas (retorno mensual en %)
+        # Serie mensual para gráfico de líneas (retorno mensual en %).
+        # CAFCI registra exactamente 0.0 en meses donde el fondo no operó
+        # (fondo inactivo/discontinuado). Tratamos esos ceros como None
+        # para no contarlos como datos válidos.
         monthly_returns = []
         if clase_nombre in df_vcp.index:
             for c in date_cols:
                 v = df_vcp.loc[clase_nombre, c]
-                monthly_returns.append(round(float(v), 4) if pd.notna(v) else None)
+                monthly_returns.append(
+                    round(float(v), 4) if pd.notna(v) and float(v) != 0.0 else None
+                )
         else:
             monthly_returns = [None] * len(date_cols)
 
