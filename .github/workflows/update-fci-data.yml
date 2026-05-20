@@ -1,0 +1,57 @@
+name: Actualizar FCI Data
+
+# Corre cada semana el lunes a las 08:00 ART (11:00 UTC).
+# Llama a la API de CAFCI desde GitHub Actions (con DNS público) y
+# regenera fci_data.json. Al commitear, Render redeploya automáticamente.
+
+on:
+  schedule:
+    - cron: '0 11 * * 1'   # 11:00 UTC lunes = 08:00 ART
+  workflow_dispatch:         # permite disparar manualmente desde GitHub UI
+
+permissions:
+  contents: write
+
+jobs:
+  rebuild-fci-data:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          pip install requests pandas dnspython
+
+      - name: Regenerar fci_data.json via CAFCI API
+        run: |
+          python backend/build_fci_data_ci.py
+        env:
+          PYTHONPATH: backend
+
+      - name: Verificar si cambió
+        id: check
+        run: |
+          git diff --quiet backend/data/fci_data.json && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
+
+      - name: Commitear JSON actualizado
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add backend/data/fci_data.json
+          git commit -m "auto: actualizar fci_data.json [$(date -u '+%Y-%m-%d')]"
+          git push
+
+      - name: Log si no hubo cambios
+        if: steps.check.outputs.changed == 'false'
+        run: echo "fci_data.json sin cambios."

@@ -118,7 +118,8 @@ async function _fciRenderRendimientos(container) {
 
     <div class="cer-note-strip" style="margin-top:10px">
       <span style="color:#94a3b8">ℹ</span>
-      Fuente: CAFCI (api.pub.cafci.org.ar) · Clase A · Rendimientos al último VCP publicado.
+      Fuente: CAFCI · Clase A · Rendimientos VCP mensual.
+      Datos estáticos actualizados semanalmente.
     </div>`;
 
   let activeAlyc = 'Balanz';
@@ -146,20 +147,41 @@ async function _fciRenderRendimientos(container) {
     if (kpiEl) kpiEl.innerHTML = _fciKpiSkeleton();
 
     try {
+      console.log('[FCI] Cargando fondos alyc=%s tipo=%s moneda=%s', activeAlyc, tipo, moneda);
       const params = { alyc: activeAlyc };
       if (tipo)   params.tipo   = tipo;
       if (moneda) params.moneda = moneda;
 
       _fciAllData = await api.fci.fondos(params);
+      console.log('[FCI] Fondos recibidos:', _fciAllData.length,
+        _fciAllData.slice(0,2).map(f => ({nombre:f.nombre, tipo:f.tipo, rend_year:f.rend_year})));
+
+      if (!_fciAllData.length) {
+        if (wrap) wrap.innerHTML = `
+          <div style="padding:18px 14px">
+            <div style="font-family:var(--font-mono);color:var(--bt2-sub);font-size:.8rem;margin-bottom:4px">
+              Sin fondos disponibles para <b>${activeAlyc}</b> con estos filtros.
+            </div>
+            <div style="font-family:var(--font-mono);color:var(--text-muted);font-size:.68rem">
+              Si el problema persiste, verificar que backend/data/fci_data.json existe
+              y contiene fondos para esta ALyC.
+            </div>
+          </div>`;
+        if (kpiEl) kpiEl.innerHTML = '';
+        return;
+      }
+
       _fciApplyFiltersAndRender();
     } catch (e) {
       console.error('[FCI] Error cargando fondos:', e);
       if (wrap) wrap.innerHTML = `
         <div style="padding:18px 14px">
           <div style="font-family:var(--font-mono);color:var(--negative);font-size:.8rem;margin-bottom:6px">
-            ✕ No se pudo cargar la información de FCI.
+            ✕ Error al cargar FCI: ${e.message || 'error desconocido'}
           </div>
-          <div style="font-family:var(--font-mono);color:var(--text-muted);font-size:.7rem">${e.message || ''}</div>
+          <div style="font-family:var(--font-mono);color:var(--text-muted);font-size:.68rem">
+            Revisar la consola para más detalles.
+          </div>
         </div>`;
       if (kpiEl) kpiEl.innerHTML = '';
     }
@@ -271,17 +293,165 @@ function _fciRenderTable(wrap, fondos) {
 }
 
 
-// ── Tab: Gráfico Comparativo ──────────────────────────────────────────────────
+// ── Tab: Gráfico Comparativo — Ranking real ───────────────────────────────────
 
 async function _fciRenderComparativo(container) {
   container.innerHTML = `
-    <div class="bt2-panel" style="padding:24px 20px">
-      <div class="bt2-panel-title" style="margin-bottom:12px">RENDIMIENTO COMPARATIVO 12 MESES</div>
-      <p style="font-family:var(--font-mono);color:var(--bt2-sub);font-size:.78rem">
-        Seleccioná fondos en la tab de Rendimientos para comparar su evolución mensual.
-        Esta funcionalidad estará disponible próximamente.
-      </p>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px">
+      <div>
+        <div class="ons-filter-lbl">ALyC</div>
+        <div id="fci-comp-alyc-pills" style="display:flex;gap:4px"></div>
+      </div>
+      <div>
+        <div class="ons-filter-lbl">Métrica</div>
+        <select class="dcf-select" id="fci-comp-metrica" style="width:130px">
+          <option value="rend_year">12 Meses</option>
+          <option value="rend_ytd">YTD</option>
+          <option value="rend_mes">Último mes</option>
+        </select>
+      </div>
+      <div>
+        <div class="ons-filter-lbl">Moneda</div>
+        <select class="dcf-select" id="fci-comp-moneda" style="width:110px">
+          <option value="">Todas</option>
+          <option value="ARS">ARS</option>
+          <option value="USD">USD</option>
+        </select>
+      </div>
+      <div>
+        <div class="ons-filter-lbl">Top N</div>
+        <select class="dcf-select" id="fci-comp-top" style="width:80px">
+          <option value="10">10</option>
+          <option value="15">15</option>
+          <option value="20">20</option>
+          <option value="0">Todos</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="bt2-panel ltr-chart-panel" style="min-height:460px">
+      <div class="bt2-panel-hdr">
+        <span class="bt2-panel-title" id="fci-comp-title">RANKING — 12 MESES</span>
+        <span class="bt2-panel-sub" id="fci-comp-sub"></span>
+      </div>
+      <div id="fci-comp-chart" style="flex:1;min-height:420px"></div>
+    </div>
+
+    <div class="cer-note-strip" style="margin-top:10px">
+      <span style="color:#94a3b8">ℹ</span>
+      Clase A · Rendimiento compuesto 12M calculado desde VCP mensual · CAFCI.
     </div>`;
+
+  let compAlyc = 'Balanz';
+  const alycC = document.getElementById('fci-comp-alyc-pills');
+  alycC.appendChild(ui.pills(_FCI_ALYCS, 0, (_, label) => {
+    compAlyc = label; _renderComp();
+  }, 'pills-sm'));
+
+  ['fci-comp-metrica', 'fci-comp-moneda', 'fci-comp-top'].forEach(id =>
+    document.getElementById(id)?.addEventListener('change', _renderComp)
+  );
+
+  async function _renderComp() {
+    const metrica = document.getElementById('fci-comp-metrica')?.value || 'rend_year';
+    const moneda  = document.getElementById('fci-comp-moneda')?.value  || '';
+    const topN    = parseInt(document.getElementById('fci-comp-top')?.value || '10');
+    const el      = document.getElementById('fci-comp-chart');
+    const titleEl = document.getElementById('fci-comp-title');
+    const subEl   = document.getElementById('fci-comp-sub');
+    if (!el) return;
+
+    const metricaLabel = {
+      rend_year: '12 MESES', rend_ytd: 'YTD', rend_mes: 'ÚLTIMO MES'
+    }[metrica] || '12 MESES';
+
+    if (titleEl) titleEl.textContent = `RANKING ${compAlyc.toUpperCase()} — ${metricaLabel}`;
+
+    try {
+      const params = { alyc: compAlyc };
+      if (moneda) params.moneda = moneda;
+      let fondos = await api.fci.fondos(params);
+      fondos = fondos.filter(f => f[metrica] != null);
+      fondos.sort((a, b) => (b[metrica] ?? -9999) - (a[metrica] ?? -9999));
+      if (topN > 0) fondos = fondos.slice(0, topN);
+
+      if (subEl) subEl.textContent = fondos.length + ' fondos';
+
+      if (!fondos.length) {
+        el.innerHTML = `<p style="padding:20px;font-family:var(--font-mono);color:var(--bt2-sub);font-size:.78rem;text-align:center">
+          Sin datos para los filtros seleccionados.</p>`;
+        return;
+      }
+
+      _fciRenderRankingChart(el, fondos, metrica, metricaLabel);
+    } catch (e) {
+      console.error('[FCI comparativo]', e);
+      el.innerHTML = `<p style="padding:20px;font-family:var(--font-mono);color:var(--negative);font-size:.78rem">Error: ${e.message}</p>`;
+    }
+  }
+
+  await _renderComp();
+}
+
+function _fciRenderRankingChart(el, fondos, metrica, metricaLabel) {
+  const ex = echarts.getInstanceByDom(el);
+  if (ex) ex.dispose();
+  const chart = echarts.init(el, 'dcf');
+  const mono  = "'JetBrains Mono',monospace";
+
+  const sorted = [...fondos].sort((a, b) => (a[metrica] ?? -9999) - (b[metrica] ?? -9999));
+  const labels = sorted.map(f => {
+    let n = (f.clase_nombre || f.nombre || '').replace(' - Clase A', '').trim();
+    return n.length > 32 ? n.slice(0, 30) + '…' : n;
+  });
+  const values = sorted.map(f => f[metrica] ?? 0);
+  const colors = values.map(v => {
+    const tipo = sorted[values.indexOf(v)]?.tipo || '';
+    return _FCI_TIPO_COLORS[tipo]?.fg || (v >= 0 ? '#22c55e' : '#ef4444');
+  });
+
+  chart.setOption({
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: '#0d1424',
+      borderColor: 'rgba(255,255,255,0.12)', borderWidth: 1, padding: [8, 12],
+      formatter: p => {
+        const f = sorted[p.dataIndex];
+        const fmtV = (v) => v != null ? (v >= 0 ? '+' : '') + Number(v).toFixed(2).replace('.', ',') + '%' : '—';
+        return `<div style="font-family:${mono};font-size:11px;min-width:200px">
+          <b style="color:var(--bt2-accent)">${(f.clase_nombre || '').replace(' - Clase A','')}</b>
+          <div style="margin-top:4px;color:#94a3b8">${f.tipo || ''} · ${f.moneda}</div>
+          <div style="margin-top:4px">${metricaLabel}: <b>${fmtV(f[metrica])}</b></div>
+          ${metrica !== 'rend_mes' && f.rend_mes != null ? `<div>Mes: ${fmtV(f.rend_mes)}</div>` : ''}
+        </div>`;
+      },
+    },
+    grid: { left: 16, right: 72, top: 10, bottom: 10, containLabel: true },
+    xAxis: {
+      type: 'value',
+      axisLabel: { color: '#475569', fontFamily: mono, fontSize: 9,
+        formatter: v => (v >= 0 ? '+' : '') + v.toFixed(1) + '%' },
+      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
+      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)', type: 'dashed' } },
+    },
+    yAxis: {
+      type: 'category', data: labels,
+      axisLabel: { color: '#94a3b8', fontFamily: mono, fontSize: 9.5 },
+      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
+      splitLine: { show: false },
+    },
+    series: [{
+      type: 'bar', data: values.map((v, i) => ({ value: v, itemStyle: { color: colors[i] } })),
+      barMaxWidth: 20,
+      label: {
+        show: true, position: 'right',
+        fontFamily: mono, fontSize: 9.5, color: '#94a3b8',
+        formatter: p => (p.value >= 0 ? '+' : '') + Number(p.value).toFixed(2).replace('.', ',') + '%',
+      },
+    }],
+  });
+  chart.resize();
+  new ResizeObserver(() => chart.resize()).observe(el);
 }
 
 
