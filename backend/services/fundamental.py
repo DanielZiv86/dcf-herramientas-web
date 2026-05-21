@@ -751,6 +751,81 @@ async def get_full_profile(ticker: str) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Compare summary — lee todos los JSONs estáticos para la tab Comparar
+# ══════════════════════════════════════════════════════════════════════════════
+
+def get_compare_summary() -> list[dict]:
+    """
+    Devuelve resumen de métricas clave para todos los tickers curados.
+    Lee desde los JSONs estáticos pre-generados (una sola llamada desde el frontend).
+    Si el JSON no existe o está vencido, intenta igual con force=True.
+    """
+    summaries = []
+    for tkr in CURATED_TICKERS:
+        # Intentar JSON fresco primero, luego forzar lectura aunque sea stale
+        data = _static_load(tkr)
+        if data is None:
+            # Intento forzado (JSON existe pero es >24h)
+            path = _static_path(tkr)
+            if path.exists():
+                try:
+                    with open(path, encoding="utf-8") as f:
+                        data = json.load(f)
+                except Exception:
+                    pass
+
+        if not data:
+            info = TICKER_INFO.get(tkr, {})
+            summaries.append({"ticker": tkr, "name": info.get("name", tkr), "error": "no_data"})
+            continue
+
+        financials = data.get("financials", [])
+        last       = financials[-1] if financials else {}
+        metrics    = data.get("metrics", {}) or {}
+        profile    = data.get("profile", {}) or {}
+        quote      = data.get("quote", {}) or {}
+
+        summaries.append({
+            "ticker":       tkr,
+            "name":         profile.get("name", ""),
+            "sector":       profile.get("sector", ""),
+            "industry":     profile.get("industry", ""),
+            "logo":         profile.get("logo", ""),
+            "price":        quote.get("price"),
+            "pct_change":   quote.get("pct_change"),
+            "market_cap":   profile.get("market_cap"),    # millones
+            "enterprise_value_m": metrics.get("enterprise_value_m"),  # millones
+            "fiscal_year":  last.get("year"),
+            "revenue":      last.get("revenue"),           # millones
+            "revenue_yoy":  last.get("revenue_yoy"),
+            "gross_profit": last.get("gross_profit"),
+            "net_income":   last.get("net_income"),
+            "fcf":          last.get("fcf"),
+            "gross_margin": last.get("gross_margin") or metrics.get("gross_margin_ttm"),
+            "ebitda_margin":last.get("ebitda_margin") or metrics.get("ebitda_margin_ttm"),
+            "net_margin":   last.get("net_margin") or metrics.get("net_margin_ttm"),
+            "fcf_margin":   last.get("fcf_margin") or metrics.get("fcf_margin_ttm"),
+            "roe":          metrics.get("roe_ttm"),
+            "roa":          metrics.get("roa_ttm"),
+            "roic":         metrics.get("roic_ttm"),
+            "pe_ttm":       metrics.get("pe_ttm"),
+            "pe_forward":   metrics.get("pe_forward"),
+            "ps_ttm":       metrics.get("ps_ttm"),
+            "pb_annual":    metrics.get("pb_annual"),
+            "ev_ebitda":    metrics.get("ev_ebitda_ttm"),
+            "ev_sales":     metrics.get("ev_sales_ttm"),
+            "beta":         metrics.get("beta"),
+            "week52_high":  metrics.get("week52_high"),
+            "week52_low":   metrics.get("week52_low"),
+            "rev_cagr_3y":  last.get("rev_cagr_3y"),
+            "net_cash":     last.get("net_cash"),
+            "total_debt":   last.get("total_debt"),
+        })
+
+    return summaries
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Build / refresh ticker JSON (llamado desde build_fundamental_data.py)
 # ══════════════════════════════════════════════════════════════════════════════
 

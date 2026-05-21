@@ -1,379 +1,462 @@
-/* ─── Análisis Fundamental — BondTerminal v2 ────────────────────────────────
-   Espejo de views/analisis_fundamental.py del proyecto Streamlit.
-   5 tabs: Empresa · Negocio · Rentabilidad · Financiera · Valuación
-   Accent: dorado #D4AF37 (igual que Streamlit's AF_GOLD)
+/* ─── Análisis Fundamental v3 — Dashboard Institucional ────────────────────
+   Layout: Hero Card → Tabs (Empresa / Negocio / Rentabilidad / Financiera /
+           Valuación / Ranking IA / Comparar)
+   Fuente: yfinance via backend + JSONs estáticos data/fundamental/tickers/
+   Accent: dorado #D4AF37 (sección diferenciada)
    ─────────────────────────────────────────────────────────────────────────── */
 
-/* ── Constantes de color ─────────────────────────────────────────────────── */
-const _AF_GOLD        = '#D4AF37';
-const _AF_GOLD_DIM    = 'rgba(212,175,55,0.12)';
-const _AF_GOLD_BORDER = 'rgba(212,175,55,0.30)';
+/* ── Paleta ──────────────────────────────────────────────────────────────── */
+const _G   = '#D4AF37';          // gold accent
+const _GD  = 'rgba(212,175,55,.12)';
+const _GB  = 'rgba(212,175,55,.28)';
+const _CY  = '#22d3ee';          // cyan    — revenue
+const _VI  = '#a78bfa';          // violet  — margins / price history
+const _GR  = '#34d399';          // green   — positive / FCF
+const _OR  = '#f97316';          // orange  — accent secundario
+const _PI  = '#f472b6';          // pink    — margins lines
+const _RE  = '#ef4444';          // red     — negative
+const _AM  = '#fbbf24';          // amber   — EPS
+const _SK  = '#38bdf8';          // sky     — secondary lines
+const _MONO = "'JetBrains Mono',monospace";
 
-const _AF_NEG_COLORS = [
-  '#22d3ee', '#a78bfa', '#34d399', '#38bdf8', '#fbbf24', '#f97316', '#f472b6',
+const _TABS = [
+  { id: 'empresa',      label: 'Empresa',      icon: '🏢' },
+  { id: 'negocio',      label: 'Negocio',      icon: '📈' },
+  { id: 'rentabilidad', label: 'Rentabilidad', icon: '💰' },
+  { id: 'financiera',   label: 'Financiera',   icon: '🏦' },
+  { id: 'valuacion',    label: 'Valuación',    icon: '🎯' },
+  { id: 'ranking',      label: 'Ranking IA',   icon: '⭐' },
+  { id: 'comparar',     label: 'Comparar',     icon: '⚡' },
 ];
-const _AF_RENT_COLORS = ['#22d3ee', '#a78bfa', '#f472b6', '#34d399', '#fbbf24', '#f97316'];
-const _AF_FIN_COLORS  = ['#22d3ee', '#ef4444', '#22c55e', '#a78bfa', '#fbbf24', '#34d399', '#f97316', '#60a5fa'];
-const _AF_VAL_COLORS  = ['#22d3ee', '#a78bfa', '#f472b6', '#34d399', '#fbbf24', '#f97316'];
 
-const _TAG_COLORS = [
-  ['rgba(56,189,248,0.15)',  '#38bdf8'],
-  ['rgba(167,139,250,0.15)', '#a78bfa'],
-  ['rgba(52,211,153,0.15)',  '#34d399'],
-  ['rgba(249,115,22,0.15)',  '#f97316'],
-  ['rgba(212,175,55,0.15)',  '#D4AF37'],
-];
-
-const MONO = "'JetBrains Mono',monospace";
+const _MESES_ES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
 
-/* ── Entrada de la página ─────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════════
+   ENTRADA DE LA PÁGINA
+   ══════════════════════════════════════════════════════════════════════════ */
 
 (window.pages = window.pages || {}).fundamental = async function(container) {
   container.innerHTML = `
-    <div class="bt2-page">
-      <div class="bt2-header" style="flex-direction:column;align-items:flex-start;gap:2px;margin-bottom:12px">
-        <h1 class="bt2-title" style="font-size:1.25rem;letter-spacing:-.02em;color:${_AF_GOLD}">
+    <div class="bt2-page" id="af-root">
+      <div class="bt2-header" style="flex-direction:column;align-items:flex-start;gap:2px;margin-bottom:14px">
+        <h1 class="bt2-title" style="font-size:1.25rem;letter-spacing:-.02em;color:${_G}">
           Análisis Fundamental
         </h1>
-        <p style="font-family:${MONO};font-size:.72rem;color:var(--bt2-sub);margin:0">
-          US Equities · Finnhub · CrowdStrike · Arista · NEE · COP · FISV y más
+        <p style="font-family:${_MONO};font-size:.70rem;color:var(--bt2-sub);margin:0">
+          US Equities · 13 compañías curadas · Finnhub + yfinance
         </p>
       </div>
 
-      <!-- Ticker selector -->
-      <div style="margin-bottom:14px">
-        <div style="font-family:${MONO};font-size:9px;color:var(--bt2-sub);text-transform:uppercase;
+      <!-- Selector de tickers -->
+      <div style="margin-bottom:16px">
+        <div style="font-family:${_MONO};font-size:9px;color:var(--bt2-sub);text-transform:uppercase;
           letter-spacing:.08em;font-weight:600;margin-bottom:6px">Tickers curados</div>
-        <div id="af-ticker-pills" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px"></div>
+        <div id="af-pills" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px"></div>
         <div style="display:flex;gap:8px;align-items:center">
-          <input class="dcf-input" id="af-custom-input"
+          <input class="dcf-input" id="af-input"
             placeholder="Buscar cualquier ticker US (AAPL, NVDA…)"
-            style="width:260px;font-family:${MONO};font-size:.78rem"/>
-          <button id="af-search-btn"
-            style="background:${_AF_GOLD_DIM};border:1px solid ${_AF_GOLD_BORDER};color:${_AF_GOLD};
-              padding:5px 14px;border-radius:6px;font-family:${MONO};font-size:.75rem;
-              font-weight:700;cursor:pointer;transition:.15s">
-            BUSCAR
-          </button>
+            style="width:260px;font-family:${_MONO};font-size:.78rem"/>
+          <button id="af-search"
+            style="background:${_GD};border:1px solid ${_GB};color:${_G};
+              padding:5px 14px;border-radius:6px;font-family:${_MONO};font-size:.75rem;
+              font-weight:700;cursor:pointer;white-space:nowrap">BUSCAR</button>
         </div>
       </div>
 
       <!-- Contenido principal -->
-      <div id="af-content">
-        <div class="bt2-panel" style="padding:28px 20px;text-align:center">
-          <div style="font-family:${MONO};color:var(--bt2-sub);font-size:.82rem">
-            Seleccioná un ticker para comenzar el análisis fundamental
-          </div>
+      <div id="af-main"></div>
+
+      <!-- Disclaimer -->
+      <div style="margin-top:20px;padding:12px 16px;background:rgba(249,115,22,.06);
+        border:1px solid rgba(249,115,22,.20);border-radius:8px;
+        display:flex;gap:10px;align-items:flex-start">
+        <span style="color:#f97316;font-size:1rem;flex-shrink:0">⚠</span>
+        <div style="font-family:${_MONO};font-size:.65rem;color:#475569;line-height:1.6">
+          <strong style="color:#94a3b8">Disclaimer:</strong>
+          Este dashboard es exclusivamente para fines educativos e informativos. No constituye
+          asesoramiento financiero ni recomendación de inversión. Los datos pueden contener errores
+          o diferir de fuentes primarias. Consultá a un asesor certificado antes de tomar decisiones.
+          Fuentes: yfinance · Finnhub · DCF Inversiones.
         </div>
       </div>
     </div>`;
 
-  let _currentTicker = null;
-  let _configData    = null;
+  let _active  = null;
+  let _cfgData = null;
+  let _tabId   = 'negocio';  // tab activo al cargar un ticker
 
-  // Cargar config curada (descripciones + tags)
-  try {
-    _configData = await api.fundamental.config();
-  } catch (e) {
-    console.warn('[AF] config load failed:', e);
-    _configData = { tickers: [], config: {} };
-  }
+  // Cargar config curada
+  try { _cfgData = await api.fundamental.config(); }
+  catch (e) { _cfgData = { tickers: [], config: {} }; }
 
-  // Renderizar pills de tickers curados
-  const tickers = _configData.tickers || [];
-  const pillsEl = document.getElementById('af-ticker-pills');
+  // Renderizar pills
+  const tickers = _cfgData.tickers || [];
+  const pillsEl = document.getElementById('af-pills');
   tickers.forEach(tk => {
-    const btn = document.createElement('button');
-    btn.id = `af-pill-${tk}`;
-    btn.textContent = tk;
-    btn.style.cssText = `background:rgba(212,175,55,0.08);border:1px solid rgba(212,175,55,0.20);
-      color:#94a3b8;padding:3px 10px;border-radius:20px;font-family:${MONO};font-size:.72rem;
+    const b = document.createElement('button');
+    b.id = `af-p-${tk}`;
+    b.textContent = tk;
+    b.style.cssText = `background:${_GD};border:1px solid rgba(212,175,55,.20);color:#94a3b8;
+      padding:3px 10px;border-radius:20px;font-family:${_MONO};font-size:.70rem;
       font-weight:700;cursor:pointer;transition:.15s;letter-spacing:.04em`;
-    btn.onmouseenter = () => { if (_currentTicker !== tk) btn.style.borderColor = _AF_GOLD_BORDER; };
-    btn.onmouseleave = () => { if (_currentTicker !== tk) btn.style.borderColor = 'rgba(212,175,55,0.20)'; };
-    btn.onclick = () => _loadTicker(tk);
-    pillsEl.appendChild(btn);
+    b.onmouseenter = () => { if (_active !== tk) b.style.borderColor = _GB; };
+    b.onmouseleave = () => { if (_active !== tk) b.style.borderColor = 'rgba(212,175,55,.20)'; };
+    b.onclick = () => _load(tk);
+    pillsEl.appendChild(b);
   });
 
-  // Search button + enter
-  document.getElementById('af-search-btn')?.addEventListener('click', () => {
-    const tk = document.getElementById('af-custom-input')?.value?.trim()?.toUpperCase();
-    if (tk) _loadTicker(tk);
+  // Buscar
+  document.getElementById('af-search')?.addEventListener('click', () => {
+    const v = document.getElementById('af-input')?.value?.trim()?.toUpperCase();
+    if (v) _load(v);
   });
-  document.getElementById('af-custom-input')?.addEventListener('keydown', e => {
+  document.getElementById('af-input')?.addEventListener('keydown', e => {
     if (e.key === 'Enter') {
-      const tk = e.target.value.trim().toUpperCase();
-      if (tk) _loadTicker(tk);
+      const v = e.target.value.trim().toUpperCase();
+      if (v) _load(v);
     }
   });
 
-  // Cargar CRWD por default
-  _loadTicker('CRWD');
+  // Cargar CRWD al inicio
+  _load('CRWD');
 
-  // ── Cargador principal ────────────────────────────────────────────────────
+  /* ── Cargador principal ───────────────────────────────────────────────── */
+  async function _load(tk) {
+    _active = tk;
+    _afSetPillActive(tickers, tk);
 
-  async function _loadTicker(ticker) {
-    if (!ticker) return;
-    _currentTicker = ticker;
-
-    // Actualizar estado visual de pills
-    tickers.forEach(tk => {
-      const b = document.getElementById(`af-pill-${tk}`);
-      if (!b) return;
-      if (tk === ticker) {
-        b.style.background = _AF_GOLD_DIM;
-        b.style.borderColor = _AF_GOLD_BORDER;
-        b.style.color = _AF_GOLD;
-      } else {
-        b.style.background = 'rgba(212,175,55,0.08)';
-        b.style.borderColor = 'rgba(212,175,55,0.20)';
-        b.style.color = '#94a3b8';
-      }
-    });
-
-    const content = document.getElementById('af-content');
-    content.innerHTML = `
-      <div style="padding:18px 0">
-        ${[...Array(3)].map(() => `<div class="skeleton" style="height:52px;border-radius:6px;margin-bottom:8px"></div>`).join('')}
-        <div class="skeleton" style="height:280px;border-radius:6px;margin-top:16px"></div>
+    const main = document.getElementById('af-main');
+    main.innerHTML = `
+      <div class="bt2-panel" style="padding:20px">
+        ${[1,2,3].map(() => `<div class="skeleton" style="height:48px;border-radius:6px;margin-bottom:8px"></div>`).join('')}
+        <div class="skeleton" style="height:240px;border-radius:6px;margin-top:12px"></div>
       </div>`;
 
     try {
-      const [perfil, financieros, candles] = await Promise.allSettled([
-        api.fundamental.perfil(ticker),
-        api.fundamental.financieros(ticker),
-        api.fundamental.candles(ticker, 'W'),
+      const [p, f, c] = await Promise.allSettled([
+        api.fundamental.perfil(tk),
+        api.fundamental.financieros(tk),
+        api.fundamental.candles(tk, 'W'),
       ]);
 
-      const p = perfil.status      === 'fulfilled' ? perfil.value      : {};
-      const f = financieros.status === 'fulfilled' ? financieros.value : { data: [] };
-      const c = candles.status     === 'fulfilled' ? candles.value     : { status: 'no_data' };
+      const perfil     = p.status === 'fulfilled' ? p.value : {};
+      const financieros= f.status === 'fulfilled' ? f.value : { data: [] };
+      const candles    = c.status === 'fulfilled' ? c.value : { status: 'no_data', dates: [], closes: [] };
 
-      // Enriquecer con config curada
-      const cfg = (_configData?.config || {})[ticker] || {};
-      if (cfg.description && !p.description) p.description = cfg.description;
-      if (cfg.tags?.length && !p.tags?.length) p.tags = cfg.tags;
+      // Enriquecer con config curada si falta descripción/tags
+      const cfg = (_cfgData?.config || {})[tk] || {};
+      if (cfg.description && !perfil.description) perfil.description = cfg.description;
+      if (cfg.tags?.length && !perfil.tags?.length)  perfil.tags = cfg.tags;
 
-      _renderPage(content, ticker, p, f, c);
+      _renderFull(main, tk, perfil, financieros, candles);
 
     } catch (e) {
-      console.error('[AF] loadTicker error:', e);
-      content.innerHTML = `
-        <div class="bt2-panel" style="padding:24px;color:var(--negative)">
-          ✕ Error cargando ${ticker}: ${e.message || 'error desconocido'}
-        </div>`;
+      main.innerHTML = `<div class="bt2-panel" style="padding:24px;color:var(--negative)">
+        ✕ Error cargando ${tk}: ${e.message || 'error desconocido'}</div>`;
     }
   }
 
-  // ── Render principal con tabs ─────────────────────────────────────────────
-
-  function _renderPage(container, ticker, perfil, financieros, candles) {
+  /* ── Render completo: hero + tabs ─────────────────────────────────────── */
+  function _renderFull(main, tk, perfil, financieros, candles) {
     const { profile = {}, quote = {}, metrics = {}, description = '', tags = [] } = perfil;
-    const data = (financieros.data || []).filter(r => r && r.year);
+    const data = (financieros.data || []).filter(r => r?.year);
 
-    container.innerHTML = `
-      <!-- Header empresa -->
-      <div id="af-company-header" style="margin-bottom:16px"></div>
+    main.innerHTML = `
+      <div id="af-hero" style="margin-bottom:14px"></div>
+      <div id="af-tabs-bar" style="margin-bottom:12px"></div>
+      <div id="af-tab-body"></div>`;
 
-      <!-- Tabs -->
-      <div id="af-tab-pills" style="margin-bottom:14px"></div>
-      <div id="af-tab-content"></div>
-
-      <div class="cer-note-strip" style="margin-top:16px">
-        <span style="color:#94a3b8">ℹ</span>
-        Fuente: Finnhub · yfinance · Datos con delay. No constituye asesoramiento de inversión.
-      </div>`;
-
-    _renderHeader(document.getElementById('af-company-header'), ticker, profile, quote, metrics, description, tags);
-
-    const TAB_NAMES = ['🏢 Empresa', '📈 Negocio', '💰 Rentabilidad', '🏦 Financiera', '🎯 Valuación'];
-    const pillsEl = document.getElementById('af-tab-pills');
-    const tabContent = document.getElementById('af-tab-content');
-
-    pillsEl.appendChild(ui.pills(TAB_NAMES, 0, (i, label) => {
-      _renderTab(tabContent, label, ticker, profile, quote, metrics, description, tags, data, candles);
-    }));
-
-    _renderTab(tabContent, TAB_NAMES[0], ticker, profile, quote, metrics, description, tags, data, candles);
+    _renderHero(document.getElementById('af-hero'), tk, profile, quote, metrics, description, tags, data);
+    _renderTabsBar(document.getElementById('af-tabs-bar'), tk, profile, quote, metrics, description, tags, data, candles);
   }
-};
+
+  /* ── Tab bar ─────────────────────────────────────────────────────────── */
+  function _renderTabsBar(el, tk, profile, quote, metrics, desc, tags, data, candles) {
+    el.innerHTML = `<div style="display:flex;gap:4px;flex-wrap:wrap;padding:4px;
+      background:rgba(13,20,36,.8);border:1px solid rgba(148,163,184,.08);
+      border-radius:10px;width:fit-content"></div>`;
+    const bar = el.querySelector('div');
+
+    const body = document.getElementById('af-tab-body');
+
+    _TABS.forEach(tab => {
+      const btn = document.createElement('button');
+      const isActive = tab.id === _tabId;
+      btn.setAttribute('data-tab', tab.id);
+      btn.innerHTML = `${tab.icon}&nbsp;${tab.label}`;
+      btn.style.cssText = `background:${isActive ? _GD : 'transparent'};
+        border:1px solid ${isActive ? _GB : 'transparent'};
+        color:${isActive ? _G : '#64748b'};
+        padding:5px 12px;border-radius:7px;font-family:${_MONO};
+        font-size:.72rem;font-weight:600;cursor:pointer;transition:.15s;
+        letter-spacing:.02em;white-space:nowrap`;
+      btn.onmouseenter = () => {
+        if (tab.id !== _tabId) { btn.style.color='#94a3b8'; btn.style.background='rgba(255,255,255,.04)'; }
+      };
+      btn.onmouseleave = () => {
+        if (tab.id !== _tabId) { btn.style.color='#64748b'; btn.style.background='transparent'; }
+      };
+      btn.onclick = () => {
+        _tabId = tab.id;
+        bar.querySelectorAll('button').forEach(b => {
+          const tid = b.getAttribute('data-tab');
+          const act = tid === _tabId;
+          b.style.background = act ? _GD : 'transparent';
+          b.style.border = `1px solid ${act ? _GB : 'transparent'}`;
+          b.style.color  = act ? _G : '#64748b';
+        });
+        _dispatchTab(body, tab.id, tk, profile, quote, metrics, desc, tags, data, candles);
+      };
+      bar.appendChild(btn);
+    });
+
+    _dispatchTab(body, _tabId, tk, profile, quote, metrics, desc, tags, data, candles);
+  }
+
+  function _dispatchTab(body, tabId, tk, profile, quote, metrics, desc, tags, data, candles) {
+    body.innerHTML = '';
+    switch (tabId) {
+      case 'empresa':      _tabEmpresa(body, tk, profile, quote, metrics, desc, tags, data); break;
+      case 'negocio':      _tabNegocio(body, tk, data, metrics); break;
+      case 'rentabilidad': _tabRentabilidad(body, tk, data, metrics); break;
+      case 'financiera':   _tabFinanciera(body, tk, data); break;
+      case 'valuacion':    _tabValuacion(body, tk, data, metrics, profile, candles); break;
+      case 'ranking':      _tabRanking(body, tk); break;
+      case 'comparar':     _tabComparar(body); break;
+    }
+  }
+};  // fin entry point
 
 
-/* ── HEADER DE EMPRESA ───────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════════
+   HERO CARD
+   ══════════════════════════════════════════════════════════════════════════ */
 
-function _renderHeader(el, ticker, profile, quote, metrics, description, tags) {
-  const name     = profile.name || ticker;
-  const sector   = profile.sector || '—';
-  const exchange = (profile.exchange || '').replace('NASDAQ NMS - GLOBAL MARKET', 'NASDAQ').replace('New York Stock Exchange', 'NYSE');
+function _renderHero(el, tk, profile, quote, metrics, desc, tags, data) {
+  const name     = profile.name || tk;
+  const sector   = profile.sector || '';
+  const industry = profile.industry || '';
+  const exchange = (profile.exchange || '').replace('NASDAQ NMS - GLOBAL MARKET','NASDAQ').replace('New York Stock Exchange','NYSE');
   const price    = quote.price;
-  const change   = quote.change;
+  const chg      = quote.change;
   const pct      = quote.pct_change;
+  const mcapM    = profile.market_cap;  // millones
 
   const priceStr = price ? `$${Number(price).toFixed(2)}` : '—';
-  const chgColor = change >= 0 ? '#22c55e' : '#ef4444';
-  const chgSign  = change >= 0 ? '+' : '';
-  const chgStr   = (change != null && pct != null) ? `${chgSign}${change.toFixed(2)} (${chgSign}${pct.toFixed(2)}%)` : '—';
+  const chgColor = chg >= 0 ? _GR : _RE;
+  const chgSign  = chg >= 0 ? '+' : '';
+  const chgStr   = (chg != null && pct != null)
+    ? `${chgSign}${chg.toFixed(2)} (${chgSign}${pct.toFixed(2)}%)`
+    : '—';
 
-  const mcap     = profile.market_cap;
-  const mcapStr  = mcap ? _afFmtB(mcap * 1e6) : '—';
+  const mcapStr = _fmtB(mcapM != null ? mcapM * 1e6 : null);
+  const w52h    = metrics.week52_high ? `$${Number(metrics.week52_high).toFixed(2)}` : '—';
+  const w52l    = metrics.week52_low  ? `$${Number(metrics.week52_low).toFixed(2)}`  : '—';
+  const beta    = metrics.beta != null ? Number(metrics.beta).toFixed(2) : '—';
+  const target  = metrics.target_price;
+  const upside  = metrics.upside;
 
-  // Tags HTML
+  // Tags badges
+  const tagColors = [
+    ['rgba(34,211,238,.15)','#22d3ee'],['rgba(167,139,250,.15)','#a78bfa'],
+    ['rgba(52,211,153,.15)','#34d399'],['rgba(249,115,22,.15)','#f97316'],
+    ['rgba(212,175,55,.15)','#D4AF37'],
+  ];
   const tagsHtml = (tags || []).map((t, i) => {
-    const [bg, color] = _TAG_COLORS[i % _TAG_COLORS.length];
-    return `<span style="background:${bg};color:${color};border:1px solid ${color}33;
-      border-radius:20px;padding:3px 10px;font-size:.72rem;font-weight:600;
-      letter-spacing:.04em;white-space:nowrap;font-family:${MONO}">${t}</span>`;
+    const [bg, c] = tagColors[i % tagColors.length];
+    return `<span style="background:${bg};color:${c};border:1px solid ${c}33;
+      border-radius:20px;padding:2px 9px;font-size:.68rem;font-weight:700;
+      letter-spacing:.04em;white-space:nowrap;font-family:${_MONO}">${t}</span>`;
   }).join('');
 
+  // KPI strip inferior — datos del último año fiscal
+  const last  = data.length ? data[data.length - 1] : null;
+  const fy    = last ? `FY${String(last.year).slice(2)}` : '';
+  const fyEnd = _fyEndingStr(last);
+
+  const strip = [
+    { lbl: 'FY ENDING',  val: fyEnd,                             sub: fy },
+    { lbl: `REV ${fy}`,  val: _fmtM(last?.revenue),             sub: last?.revenue_yoy != null ? `▲ ${last.revenue_yoy.toFixed(1)}%` : '' },
+    { lbl: `FCF ${fy}`,  val: _fmtM(last?.fcf),                 sub: last?.fcf_margin != null  ? `${last.fcf_margin.toFixed(1)}% FCF%` : '' },
+    { lbl: 'EMPLEADOS',  val: profile.employees ? `~${Number(profile.employees).toLocaleString('es-AR')}` : '—', sub: '' },
+    { lbl: 'IPO',        val: (profile.ipo_date || '').slice(0, 4) || '—', sub: '' },
+    { lbl: 'BETA',       val: beta,                              sub: '' },
+    { lbl: 'DIV YIELD',  val: profile.dividend_yield != null ? `${profile.dividend_yield.toFixed(2)}%` : '—', sub: '' },
+  ].map(({ lbl, val, sub }) => `
+    <div style="flex:1;min-width:90px;padding:9px 14px;
+      border-right:1px solid rgba(148,163,184,.07)">
+      <div style="font-size:.57rem;font-weight:700;letter-spacing:.10em;text-transform:uppercase;
+        color:#334155;margin-bottom:3px;font-family:${_MONO}">${lbl}</div>
+      <div style="font-size:.85rem;font-weight:700;color:#e2e8f0;font-family:${_MONO}">${val}</div>
+      ${sub ? `<div style="font-size:.62rem;color:#22c55e;font-family:${_MONO}">${sub}</div>` : ''}
+    </div>`).join('');
+
   el.innerHTML = `
-    <div class="bt2-panel" style="padding:16px 18px">
-      <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
-        <!-- Logo o iniciales -->
-        <div style="flex-shrink:0">
+    <div class="bt2-panel" style="padding:0;overflow:hidden">
+      <!-- Main row: logo + info | price -->
+      <div style="display:flex;gap:0;align-items:stretch">
+
+        <!-- Logo / iniciales -->
+        <div style="padding:18px 16px;display:flex;align-items:flex-start;flex-shrink:0">
           ${profile.logo
-            ? `<img src="${profile.logo}" alt="${ticker}"
-                style="width:64px;height:64px;border-radius:10px;object-fit:contain;
+            ? `<img src="${profile.logo}" alt="${tk}"
+                style="width:60px;height:60px;border-radius:10px;object-fit:contain;
                   background:#0d1424;border:1px solid rgba(148,163,184,.1)"
                 onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
             : ''}
-          <div style="width:64px;height:64px;border-radius:10px;background:${_AF_GOLD_DIM};
-            border:1px solid ${_AF_GOLD_BORDER};display:${profile.logo ? 'none' : 'flex'};
+          <div style="width:60px;height:60px;border-radius:10px;background:${_GD};
+            border:1px solid ${_GB};display:${profile.logo ? 'none' : 'flex'};
             align-items:center;justify-content:center;font-size:1.3rem;
-            font-weight:700;color:${_AF_GOLD};font-family:${MONO}">
-            ${ticker.slice(0, 2)}
+            font-weight:700;color:${_G};font-family:${_MONO}">
+            ${tk.slice(0, 2)}
           </div>
         </div>
 
-        <!-- Nombre + info -->
-        <div style="flex:1;min-width:200px">
-          <div style="font-size:1.25rem;font-weight:700;color:#f1f5f9;line-height:1.2">${name}</div>
-          <div style="font-size:.78rem;color:#94a3b8;margin-top:2px">
-            ${ticker} · ${sector} · ${exchange}
+        <!-- Info principal -->
+        <div style="flex:1;padding:18px 4px 14px 0;min-width:0">
+          <div style="font-size:1.25rem;font-weight:700;color:#f1f5f9;line-height:1.2;
+            white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name}</div>
+          <div style="font-size:.75rem;color:#64748b;margin-top:2px;font-family:${_MONO}">
+            ${tk} · ${exchange}${sector ? ' · ' + sector : ''}${industry && industry !== sector ? ' · ' + industry : ''}
           </div>
           ${tagsHtml ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px">${tagsHtml}</div>` : ''}
+          ${desc ? `<div style="color:#94a3b8;font-size:.75rem;line-height:1.55;margin-top:10px;
+            max-width:680px;display:-webkit-box;-webkit-line-clamp:2;
+            -webkit-box-orient:vertical;overflow:hidden">${desc}</div>` : ''}
         </div>
 
-        <!-- Precio -->
-        <div style="text-align:right;flex-shrink:0">
-          <div style="font-size:1.9rem;font-weight:700;color:${_AF_GOLD};line-height:1;
-            font-family:${MONO}">${priceStr}</div>
-          <div style="font-size:.80rem;color:${chgColor};margin-top:3px;font-family:${MONO}">${chgStr}</div>
-          <div style="font-size:.72rem;color:#94a3b8;margin-top:4px">
-            Mkt Cap: ${mcapStr}
+        <!-- Precio y datos de mercado -->
+        <div style="padding:16px 20px 14px;text-align:right;flex-shrink:0;
+          border-left:1px solid rgba(148,163,184,.07);min-width:180px">
+          <div style="font-size:2.1rem;font-weight:700;color:${_G};line-height:1;
+            font-family:${_MONO}">${priceStr}</div>
+          <div style="font-size:.80rem;color:${chgColor};margin-top:3px;font-family:${_MONO}">${chgStr}</div>
+          <div style="margin-top:8px;display:flex;flex-direction:column;gap:3px">
+            ${[
+              ['Mkt Cap',   mcapStr],
+              ['52W High',  w52h],
+              ['52W Low',   w52l],
+              ...(target != null ? [['Target', `$${Number(target).toFixed(2)}`]] : []),
+              ...(upside != null ? [['Upside', `${upside >= 0 ? '+' : ''}${upside.toFixed(1)}%`]] : []),
+            ].map(([l, v]) => `
+              <div style="display:flex;justify-content:space-between;gap:12px">
+                <span style="font-size:.65rem;color:#334155;text-transform:uppercase;
+                  letter-spacing:.06em;font-family:${_MONO}">${l}</span>
+                <span style="font-size:.72rem;font-weight:600;color:#e2e8f0;
+                  font-family:${_MONO}">${v}</span>
+              </div>`).join('')}
           </div>
         </div>
       </div>
+
+      <!-- KPI strip inferior -->
+      <div style="display:flex;flex-wrap:wrap;background:rgba(6,11,23,.6);
+        border-top:1px solid rgba(148,163,184,.07)">
+        ${strip}
+      </div>
     </div>`;
 }
 
-
-/* ── DISPATCHER DE TABS ──────────────────────────────────────────────────── */
-
-function _renderTab(container, label, ticker, profile, quote, metrics, description, tags, data, candles) {
-  container.innerHTML = '';
-  if (label.includes('Empresa'))      _tabEmpresa(container, ticker, profile, quote, metrics, description, tags, data);
-  else if (label.includes('Negocio')) _tabNegocio(container, ticker, data, metrics);
-  else if (label.includes('Rentabilidad')) _tabRentabilidad(container, ticker, data, metrics);
-  else if (label.includes('Financiera'))   _tabFinanciera(container, ticker, data);
-  else if (label.includes('Valuación'))    _tabValuacion(container, ticker, data, metrics, profile, candles);
+function _fyEndingStr(last) {
+  if (!last?.end_date) return '—';
+  try {
+    const d = new Date(last.end_date + 'T00:00:00');
+    return `${_MESES_ES[d.getMonth()]} ${d.getDate()}`;
+  } catch (_) { return '—'; }
 }
 
 
-/* ════════════════════════════════════════════════════════════════════════════
-   TAB 1: EMPRESA
-   ════════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+   TAB: EMPRESA
+   ══════════════════════════════════════════════════════════════════════════ */
 
-function _tabEmpresa(container, ticker, profile, quote, metrics, description, tags, data) {
-  const last    = data.length ? data[data.length - 1] : null;
-  const fy      = last ? `FY${String(last.year).slice(2)}` : 'FY—';
+function _tabEmpresa(container, tk, profile, quote, metrics, desc, tags, data) {
+  const last = data.length ? data[data.length - 1] : null;
+  const fy   = last ? `FY${String(last.year).slice(2)}` : '';
 
-  // KPI strip bottom (igual que Streamlit)
-  const divYield   = metrics.dividend_yield != null ? `${Number(metrics.dividend_yield).toFixed(2)}%` : '—';
-  const revStr     = last?.revenue != null ? _afFmtB(last.revenue * 1e6) : '—';
-  const fcfStr     = last?.fcf     != null ? _afFmtB(last.fcf     * 1e6) : '—';
-  const empStr     = profile.employees ? `~${Number(profile.employees).toLocaleString('es-AR')}` : '—';
-  const ipoStr     = (profile.ipo_date || '').slice(0, 4) || '—';
-  const w52h       = metrics.week52_high ? `$${Number(metrics.week52_high).toFixed(2)}` : '—';
-  const w52l       = metrics.week52_low  ? `$${Number(metrics.week52_low).toFixed(2)}`  : '—';
-  const betaStr    = metrics.beta != null ? Number(metrics.beta).toFixed(2) : '—';
-
-  const kpiItems = [
-    [`REV ${fy}`,    revStr],
-    [`FCF ${fy}`,    fcfStr],
-    ['DIV YIELD',    divYield],
-    ['52W HIGH',     w52h],
-    ['52W LOW',      w52l],
-    ['BETA',         betaStr],
-    ['IPO',          ipoStr],
-    ['EMPLEADOS',    empStr],
+  const facts = [
+    ['Sector',        profile.sector || '—'],
+    ['Industria',     profile.industry || '—'],
+    ['Exchange',      (profile.exchange || '—').replace('NASDAQ NMS - GLOBAL MARKET','NASDAQ')],
+    ['País',          profile.country || '—'],
+    ['Moneda',        profile.currency || '—'],
+    ['IPO',           (profile.ipo_date || '').slice(0, 10) || '—'],
+    ['Empleados',     profile.employees ? `~${Number(profile.employees).toLocaleString('es-AR')}` : '—'],
+    ['Div. Yield',    profile.dividend_yield != null ? `${profile.dividend_yield.toFixed(2)}%` : '—'],
+    ['FY End',        _fyEndingStr(last)],
+    ['Website',       profile.website
+                        ? `<a href="${profile.website}" target="_blank" style="color:${_CY};
+                             text-decoration:none;font-size:.78rem">${profile.website.replace('https://','')}</a>`
+                        : '—'],
   ];
 
-  const kpiCells = kpiItems.map(([lbl, val]) => `
-    <div style="flex:1;min-width:100px;padding:10px 14px;
-      border-right:1px solid rgba(148,163,184,.08)">
-      <div style="font-size:.60rem;font-weight:700;letter-spacing:.10em;text-transform:uppercase;
-        color:#475569;margin-bottom:4px;font-family:${MONO}">${lbl}</div>
-      <div style="font-size:.82rem;font-weight:600;color:#f1f5f9;font-family:${MONO}">${val}</div>
-    </div>`).join('');
+  const metricsGrid = [
+    ['P/E TTM',       metrics.pe_ttm,       'x'],
+    ['P/E Forward',   metrics.pe_forward,   'x'],
+    ['P/S TTM',       metrics.ps_ttm,       'x'],
+    ['P/B',           metrics.pb_annual,    'x'],
+    ['EV/EBITDA',     metrics.ev_ebitda_ttm,'x', true],
+    ['EV/Sales',      metrics.ev_sales_ttm, 'x'],
+    ['ROE TTM',       metrics.roe_ttm,      '%'],
+    ['ROA TTM',       metrics.roa_ttm,      '%'],
+    ['Gross Margin',  metrics.gross_margin_ttm, '%'],
+    ['EBITDA Margin', metrics.ebitda_margin_ttm,'%'],
+    ['Net Margin',    metrics.net_margin_ttm,'%'],
+    ['Beta',          metrics.beta,         ''],
+  ].map(([lbl, val, suf, absClamp]) => {
+    let v = val != null ? Number(val) : null;
+    const isNa = absClamp && v != null && Math.abs(v) > 500;
+    const str  = isNa ? 'N/A' : (v != null ? `${v.toFixed(1)}${suf}` : '—');
+    const col  = suf === '%' ? (v > 0 ? _GR : v < 0 ? _RE : '#94a3b8') : '#f1f5f9';
+    return `<div style="background:rgba(13,20,36,.6);border:1px solid rgba(148,163,184,.07);
+      border-radius:8px;padding:10px 12px">
+      <div style="font-size:.57rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+        color:#334155;margin-bottom:3px;font-family:${_MONO}">${lbl}</div>
+      <div style="font-size:.92rem;font-weight:700;color:${col};font-family:${_MONO}">${str}</div>
+    </div>`;
+  });
 
   container.innerHTML = `
-    <!-- Descripción -->
-    ${description ? `
-    <div class="bt2-panel" style="padding:16px 18px;margin-bottom:12px">
-      <div style="font-size:.60rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-        color:#475569;margin-bottom:8px;font-family:${MONO}">DESCRIPCIÓN</div>
-      <div style="color:#94a3b8;font-size:.82rem;line-height:1.65">${description}</div>
-    </div>` : ''}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
 
-    <!-- KPI strip -->
-    <div style="display:flex;flex-wrap:wrap;background:rgba(13,20,36,.6);
-      border:1px solid rgba(148,163,184,.08);border-radius:10px;margin-bottom:12px">
-      ${kpiCells}
-    </div>
+      <!-- Descripción + datos compañía -->
+      <div style="display:flex;flex-direction:column;gap:12px">
+        ${desc ? `<div class="bt2-panel" style="padding:16px">
+          <div style="font-size:.60rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+            color:#475569;margin-bottom:8px;font-family:${_MONO}">DESCRIPCIÓN</div>
+          <div style="color:#94a3b8;font-size:.80rem;line-height:1.65">${desc}</div>
+        </div>` : ''}
+        <div class="bt2-panel" style="padding:0;overflow:hidden">
+          ${facts.map(([l, v]) => `
+            <div style="display:flex;align-items:center;justify-content:space-between;
+              padding:9px 14px;border-bottom:1px solid rgba(148,163,184,.06)">
+              <span style="font-size:.65rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+                color:#334155;font-family:${_MONO}">${l}</span>
+              <span style="font-size:.78rem;font-weight:600;color:#e2e8f0;
+                font-family:${_MONO}">${v}</span>
+            </div>`).join('')}
+        </div>
+      </div>
 
-    <!-- Ratios clave en grid -->
-    <div class="bt2-panel" style="padding:16px 18px">
-      <div style="font-size:.60rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-        color:#475569;margin-bottom:10px;font-family:${MONO}">RATIOS CLAVE (TTM)</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px">
-        ${[
-          ['P/E TTM',       metrics.pe_ttm,           'x'],
-          ['P/E Forward',   metrics.pe_forward,        'x'],
-          ['P/S TTM',       metrics.ps_ttm,            'x'],
-          ['P/B',           metrics.pb_annual,         'x'],
-          ['EV/EBITDA TTM', metrics.ev_ebitda_ttm,     'x'],
-          ['ROE TTM',       metrics.roe_ttm,           '%'],
-          ['ROA TTM',       metrics.roa_ttm,           '%'],
-          ['ROIC TTM',      metrics.roic_ttm,          '%'],
-          ['Gross Margin',  metrics.gross_margin_ttm,  '%'],
-          ['EBITDA Margin', metrics.ebitda_margin_ttm, '%'],
-          ['Net Margin',    metrics.net_margin_ttm,    '%'],
-          ['FCF Margin',    metrics.fcf_margin_ttm,    '%'],
-        ].map(([lbl, val, suf]) => {
-          const vStr = val != null ? `${Number(val).toFixed(1)}${suf}` : '—';
-          const color = suf === '%' ? (val > 0 ? '#22c55e' : val < 0 ? '#ef4444' : '#94a3b8') : '#f1f5f9';
-          return `<div style="background:rgba(13,20,36,.6);border:1px solid rgba(148,163,184,.08);
-            border-radius:8px;padding:10px 12px">
-            <div style="font-size:.58rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-              color:#475569;margin-bottom:3px;font-family:${MONO}">${lbl}</div>
-            <div style="font-size:.90rem;font-weight:700;color:${color};font-family:${MONO}">${vStr}</div>
-          </div>`;
-        }).join('')}
+      <!-- Ratios rápidos -->
+      <div>
+        <div style="font-size:.60rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+          color:#475569;margin-bottom:8px;font-family:${_MONO}">RATIOS CLAVE (TTM)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          ${metricsGrid.join('')}
+        </div>
       </div>
     </div>`;
 }
 
 
-/* ════════════════════════════════════════════════════════════════════════════
-   TAB 2: NEGOCIO
-   ════════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+   TAB: NEGOCIO
+   ══════════════════════════════════════════════════════════════════════════ */
 
-function _tabNegocio(container, ticker, data, metrics) {
-  if (!data.length) {
-    container.innerHTML = _afNoData('Sin datos financieros anuales para este ticker.');
-    return;
-  }
+function _tabNegocio(container, tk, data, metrics) {
+  if (!data.length) { container.innerHTML = _afEmpty('Sin datos financieros anuales'); return; }
 
   const last  = data[data.length - 1];
   const first = data[0];
@@ -388,844 +471,796 @@ function _tabNegocio(container, ticker, data, metrics) {
   const eps    = last.eps_diluted ?? metrics.eps_ttm;
   const cagr   = last.rev_cagr_3y;
 
-  const cards = [
-    ['Revenue',      _afFmtB(_afM(rev)),    fy,                              last.revenue_yoy,    false],
-    ['Gross Profit', _afFmtB(_afM(gp)),    _marginStr(gp, rev),             null,                false],
-    ['EBITDA',       _afFmtB(_afM(ebitda)),  _marginStr(ebitda, rev),         null,                ebitda != null && ebitda < 0],
-    ['Net Income',   _afFmtB(_afM(ni)),    _marginStr(ni, rev),             last.net_income_yoy, ni != null && ni < 0],
-    ['EPS Diluido',  eps != null ? `$${Number(eps).toFixed(2)}` : '—',       fy,                  null,                false],
-    ['FCF',          _afFmtB(_afM(fcf)),    _marginStr(fcf, rev),            last.fcf_yoy,        fcf != null && fcf < 0],
-    ['Rev CAGR',     cagr != null ? `${cagr > 0 ? '+' : ''}${cagr.toFixed(1)}%` : '—',
-                                              `${fy0}→${fy}`,                  null,                false],
+  const kpis = [
+    { lbl:'REVENUE',     val:_fmtM(rev),      sub:fy,                    badge:last.revenue_yoy, color:_CY  },
+    { lbl:'GROSS PROFIT',val:_fmtM(gp),       sub:_margin(gp,rev),       badge:null,             color:_SK  },
+    { lbl:'EBITDA',      val:_fmtM(ebitda),   sub:_margin(ebitda,rev),   badge:null,             color:_VI  },
+    { lbl:'NET INCOME',  val:_fmtM(ni),       sub:_margin(ni,rev),       badge:last.net_income_yoy, color: ni != null && ni >= 0 ? _GR : _RE },
+    { lbl:'EPS DILUIDO', val:eps != null ? `$${Number(eps).toFixed(2)}` : '—', sub:fy, badge:null, color:_AM },
+    { lbl:'FCF',         val:_fmtM(fcf),      sub:_margin(fcf,rev),      badge:last.fcf_yoy,     color:_OR  },
+    { lbl:'REV CAGR',   val:cagr != null ? `${cagr.toFixed(1)}%` : '—',
+      sub:`${fy0}→${fy}`, badge:null, color:_PI },
   ];
 
   container.innerHTML = `
-    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
-      ${cards.map((c, i) => _afKpiCard(c[0], c[1], c[2], c[3], _AF_NEG_COLORS[i % _AF_NEG_COLORS.length], c[4])).join('')}
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+      ${kpis.map(k => _kpi(k.lbl, k.val, k.sub, k.badge, k.color)).join('')}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div class="bt2-panel" style="padding:12px">
-        <div class="bt2-panel-hdr"><span class="bt2-panel-title">REVENUE & EARNINGS</span></div>
-        <div id="af-chart-rev-earn" style="height:300px"></div>
-      </div>
-      <div class="bt2-panel" style="padding:12px">
-        <div class="bt2-panel-hdr"><span class="bt2-panel-title">CRECIMIENTO YoY</span></div>
-        <div id="af-chart-yoy" style="height:300px"></div>
-      </div>
-      <div class="bt2-panel" style="padding:12px">
-        <div class="bt2-panel-hdr"><span class="bt2-panel-title">EBITDA y MARGEN</span></div>
-        <div id="af-chart-ebitda" style="height:300px"></div>
-      </div>
-      <div class="bt2-panel" style="padding:12px">
-        <div class="bt2-panel-hdr"><span class="bt2-panel-title">NET INCOME y EPS</span></div>
-        <div id="af-chart-ni-eps" style="height:300px"></div>
-      </div>
+      ${_chartPanel('af-c-rev',    'REVENUE & EARNINGS', '')}
+      ${_chartPanel('af-c-yoy',    'CRECIMIENTO YoY', '')}
+      ${_chartPanel('af-c-ebitda', 'EBITDA & MARGEN', '')}
+      ${_chartPanel('af-c-nieps',  'NET INCOME & EPS', '')}
     </div>`;
 
   const years = data.map(d => `FY${String(d.year).slice(2)}`);
-  const n     = years.length;
+  const n = years.length;
 
-  // Chart 1: Revenue & Earnings — barras agrupadas con opacidad gradiente
-  _afChartInit('af-chart-rev-earn', chart => {
-    const revData = data.map(d => d.revenue ?? null);
-    const niData  = data.map(d => d.net_income ?? null);
-    chart.setOption({
-      ..._afBaseOption(years),
-      yAxis: [{ type: 'value', axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9,
-        formatter: v => `$${Math.abs(v) >= 1000 ? (v/1000).toFixed(0)+'B' : v.toFixed(0)+'M'}` },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } }],
+  // Revenue & Earnings
+  _chart('af-c-rev', ch => {
+    ch.setOption({
+      ..._base(years),
+      yAxis: [_yaxM()],
       series: [
-        { name: 'Revenue', type: 'bar', data: revData.map((v, i) => ({
-            value: v, itemStyle: { color: _afRgba('#22d3ee', _afOpacity(i, n)) }
-          })), barGap: '-30%', barCategoryGap: '40%' },
-        { name: 'Net Income', type: 'bar', data: niData.map((v, i) => ({
-            value: v,
-            itemStyle: { color: _afRgba(v >= 0 ? '#34d399' : '#ef4444', _afOpacity(i, n)) }
-          })) },
+        { name:'Revenue',   type:'bar', data: data.map((d,i)=>({ value:d.revenue,
+            itemStyle:{color:_rgba(_CY, _op(i,n))} })), barGap:'-30%', barCategoryGap:'40%' },
+        { name:'Net Income',type:'bar', data: data.map((d,i)=>({ value:d.net_income,
+            itemStyle:{color:_rgba(d.net_income>=0?_GR:_RE, _op(i,n))} })) },
       ],
-      tooltip: { ..._afTooltip(), valueFormatter: v => v != null ? `$${v.toFixed(0)}M` : '—' },
+      tooltip: { ..._tt(), valueFormatter: v => v!=null?`$${v.toFixed(0)}M`:'—' },
+      legend: _leg(['Revenue','Net Income']),
     });
   });
 
-  // Chart 2: Crecimiento YoY — línea con fill
-  _afChartInit('af-chart-yoy', chart => {
-    const yoyData = data.map(d => d.revenue_yoy ?? null);
-    chart.setOption({
-      ..._afBaseOption(years),
-      yAxis: [{ type: 'value', axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9,
-        formatter: v => `${v.toFixed(0)}%` },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } }],
-      series: [{
-        name: 'Revenue YoY', type: 'line', data: yoyData,
-        smooth: false, symbol: 'circle', symbolSize: 6,
-        lineStyle: { color: '#a78bfa', width: 2.2 },
-        itemStyle: { color: '#a78bfa' },
-        areaStyle: { color: 'rgba(167,139,250,.08)' },
-        markLine: { data: [{ yAxis: 0 }], lineStyle: { color: 'rgba(148,163,184,.25)', width: 1 },
-          label: { show: false }, symbol: 'none' },
+  // YoY
+  _chart('af-c-yoy', ch => {
+    const d = data.map(d => d.revenue_yoy);
+    const hasData = d.some(v => v != null);
+    ch.setOption({
+      ..._base(years),
+      yAxis: [_yaxPct()],
+      series: [{ name:'Revenue YoY', type:'line', data: d,
+        smooth:false, symbol:'circle', symbolSize:6,
+        lineStyle:{color:_VI,width:2.2}, itemStyle:{color:_VI},
+        areaStyle:{color:`${_VI}12`},
+        markLine:{data:[{yAxis:0}],lineStyle:{color:'rgba(148,163,184,.2)',width:1},label:{show:false},symbol:'none'},
       }],
-      tooltip: { ..._afTooltip(), valueFormatter: v => v != null ? `${v >= 0 ? '+' : ''}${v.toFixed(1)}%` : '—' },
+      tooltip: { ..._tt(), valueFormatter: v => v!=null?`${v>=0?'+':''}${v.toFixed(1)}%`:'—' },
+    }, { hasData });
+  }, !data.map(d => d.revenue_yoy).some(v => v != null));
+
+  // EBITDA + Margen
+  _chart('af-c-ebitda', ch => {
+    ch.setOption({
+      ..._base(years),
+      yAxis: [_yaxM(), { type:'value', axisLabel:{color:'#475569',fontFamily:_MONO,fontSize:9,formatter:v=>`${v.toFixed(0)}%`}, splitLine:{show:false}, axisLine:{lineStyle:{color:'rgba(255,255,255,.06)'}} }],
+      legend: _leg(['EBITDA','Margen EBITDA %']),
+      series: [
+        { name:'EBITDA',      type:'bar',  yAxisIndex:0, data:data.map((d,i)=>({value:d.ebitda_est, itemStyle:{color:_rgba(_VI,_op(i,n,.2))}})) },
+        { name:'Margen EBITDA %',type:'line',yAxisIndex:1, data:data.map(d=>d.ebitda_margin),
+          smooth:false, symbol:'circle', symbolSize:5, lineStyle:{color:_PI,width:2}, itemStyle:{color:_PI} },
+      ],
+      tooltip: { ..._tt() },
     });
   });
 
-  // Chart 3: EBITDA + margen (dual axis)
-  _afChartInit('af-chart-ebitda', chart => {
-    const ebitdaData  = data.map(d => d.ebitda_est ?? null);
-    const marginData  = data.map(d => d.ebitda_margin ?? null);
-    chart.setOption({
-      ..._afBaseOption(years),
-      yAxis: [
-        { type: 'value', axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9,
-            formatter: v => `$${Math.abs(v) >= 1000 ? (v/1000).toFixed(0)+'B' : v.toFixed(0)+'M'}` },
-          splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
-          axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } },
-        { type: 'value', axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9, formatter: v => `${v.toFixed(0)}%` },
-          splitLine: { show: false }, axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } },
-      ],
+  // NI + EPS
+  _chart('af-c-nieps', ch => {
+    ch.setOption({
+      ..._base(years),
+      yAxis: [_yaxM(), { type:'value', axisLabel:{color:'#475569',fontFamily:_MONO,fontSize:9,formatter:v=>`$${v.toFixed(1)}`}, splitLine:{show:false}, axisLine:{lineStyle:{color:'rgba(255,255,255,.06)'}} }],
+      legend: _leg(['Net Income','EPS']),
       series: [
-        { name: 'EBITDA', type: 'bar', yAxisIndex: 0, data: ebitdaData.map((v, i) => ({
-            value: v, itemStyle: { color: _afRgba('#4338ca', _afOpacity(i, n, 0.2)) } })) },
-        { name: 'Margen EBITDA %', type: 'line', yAxisIndex: 1, data: marginData,
-          smooth: false, symbol: 'circle', symbolSize: 5,
-          lineStyle: { color: '#f472b6', width: 2 }, itemStyle: { color: '#f472b6' } },
+        { name:'Net Income', type:'bar',  yAxisIndex:0, data:data.map((d,i)=>({value:d.net_income, itemStyle:{color:_rgba(d.net_income>=0?_GR:_RE,_op(i,n,.2))}})) },
+        { name:'EPS', type:'line', yAxisIndex:1, data:data.map(d=>d.eps_diluted),
+          smooth:false, symbol:'circle', symbolSize:5, lineStyle:{color:_AM,width:2}, itemStyle:{color:_AM} },
       ],
-      tooltip: { ..._afTooltip() },
-      legend: { data: ['EBITDA', 'Margen EBITDA %'], textStyle: { color: '#94a3b8', fontSize: 10, fontFamily: MONO },
-        top: 4, right: 8 },
-    });
-  });
-
-  // Chart 4: NI + EPS (dual axis)
-  _afChartInit('af-chart-ni-eps', chart => {
-    const niData2  = data.map(d => d.net_income ?? null);
-    const epsData  = data.map(d => d.eps_diluted ?? null);
-    chart.setOption({
-      ..._afBaseOption(years),
-      yAxis: [
-        { type: 'value', axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9,
-            formatter: v => `$${Math.abs(v) >= 1000 ? (v/1000).toFixed(0)+'B' : v.toFixed(0)+'M'}` },
-          splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
-          axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } },
-        { type: 'value', name: 'EPS', axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9, formatter: v => `$${v.toFixed(1)}` },
-          splitLine: { show: false }, axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } },
-      ],
-      series: [
-        { name: 'Net Income', type: 'bar', yAxisIndex: 0, data: niData2.map((v, i) => ({
-            value: v, itemStyle: { color: _afRgba(v >= 0 ? '#0d9488' : '#ef4444', _afOpacity(i, n, 0.2)) } })) },
-        { name: 'EPS Diluido', type: 'line', yAxisIndex: 1, data: epsData,
-          smooth: false, symbol: 'circle', symbolSize: 5,
-          lineStyle: { color: '#34d399', width: 2 }, itemStyle: { color: '#34d399' } },
-      ],
-      tooltip: { ..._afTooltip() },
-      legend: { data: ['Net Income', 'EPS Diluido'], textStyle: { color: '#94a3b8', fontSize: 10, fontFamily: MONO },
-        top: 4, right: 8 },
+      tooltip: { ..._tt() },
     });
   });
 }
 
 
-/* ════════════════════════════════════════════════════════════════════════════
-   TAB 3: RENTABILIDAD
-   ════════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+   TAB: RENTABILIDAD
+   ══════════════════════════════════════════════════════════════════════════ */
 
-function _tabRentabilidad(container, ticker, data, metrics) {
-  if (!data.length) { container.innerHTML = _afNoData('Sin datos financieros.'); return; }
+function _tabRentabilidad(container, tk, data, metrics) {
+  if (!data.length) { container.innerHTML = _afEmpty('Sin datos financieros'); return; }
 
-  const last   = data[data.length - 1];
-  const fy     = `FY${String(last.year).slice(2)}`;
-  const fcfV   = last.fcf;
-  const cfoV   = last.cfo;
-  const roe    = metrics.roe_ttm ?? metrics.roe_annual;
-  const roic   = metrics.roic_ttm;
-  const roa    = metrics.roa_ttm;
-  const ebitdaM = last.ebitda_margin;
-  const fcfM   = last.fcf_margin;
+  const last = data[data.length - 1];
+  const fy   = `FY${String(last.year).slice(2)}`;
 
-  const cards = [
-    ['FCF',          _afFmtB(_afM(fcfV)),  _marginStr(fcfV, last.revenue), last.fcf_yoy,  fcfV != null && fcfV < 0],
-    ['Op Cash Flow', _afFmtB(_afM(cfoV)),  fy,                             null,           false],
-    ['EBITDA Margin',ebitdaM != null ? `${ebitdaM.toFixed(1)}%` : '—', fy, null, ebitdaM < 0],
-    ['FCF Margin',   fcfM   != null ? `${fcfM.toFixed(1)}%`    : '—', fy, null, false],
-    ['ROE',          roe    != null ? `${roe.toFixed(1)}%`     : '—', 'TTM', null, roe < 0],
-    ['ROIC',         roic   != null ? `${roic.toFixed(1)}%`    : '—', 'TTM', null, roic < 0],
+  const kpis = [
+    { lbl:'FCF',          val:_fmtM(last.fcf),    sub:_margin(last.fcf,last.revenue),   badge:last.fcf_yoy,  color:_OR },
+    { lbl:'OP CASH FLOW', val:_fmtM(last.cfo),    sub:fy,                                badge:null,          color:_CY },
+    { lbl:'EBITDA MARGIN',val:last.ebitda_margin!=null?`${last.ebitda_margin.toFixed(1)}%`:'—', sub:fy, badge:null, color:_VI },
+    { lbl:'FCF MARGIN',   val:last.fcf_margin!=null?`${last.fcf_margin.toFixed(1)}%`:'—',      sub:fy, badge:null, color:_GR },
+    { lbl:'ROE TTM',      val:metrics.roe_ttm!=null?`${metrics.roe_ttm.toFixed(1)}%`:'—',       sub:'TTM',badge:null, color:metrics.roe_ttm>=0?_GR:_RE },
+    { lbl:'ROIC TTM',     val:metrics.roic_ttm!=null?`${metrics.roic_ttm.toFixed(1)}%`:'—',     sub:'TTM',badge:null, color:_PI },
   ];
 
   container.innerHTML = `
-    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
-      ${cards.map((c, i) => _afKpiCard(c[0], c[1], c[2], c[3], _AF_RENT_COLORS[i % _AF_RENT_COLORS.length], c[4])).join('')}
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+      ${kpis.map(k => _kpi(k.lbl, k.val, k.sub, k.badge, k.color)).join('')}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div class="bt2-panel" style="padding:12px">
-        <div class="bt2-panel-hdr"><span class="bt2-panel-title">MÁRGENES HISTÓRICOS</span></div>
-        <div id="af-chart-margenes" style="height:300px"></div>
-      </div>
-      <div class="bt2-panel" style="padding:12px">
-        <div class="bt2-panel-hdr"><span class="bt2-panel-title">FCF y OP CASH FLOW</span></div>
-        <div id="af-chart-fcf-cfo" style="height:300px"></div>
-      </div>
-      <div class="bt2-panel" style="padding:12px">
-        <div class="bt2-panel-hdr"><span class="bt2-panel-title">RETORNOS DE CAPITAL</span></div>
-        <div id="af-chart-retornos" style="height:300px"></div>
-      </div>
-      <div class="bt2-panel" style="padding:12px">
-        <div class="bt2-panel-hdr"><span class="bt2-panel-title">FCF MARGIN HISTÓRICO</span></div>
-        <div id="af-chart-fcf-margin" style="height:300px"></div>
-      </div>
+      ${_chartPanel('af-c-marg',  'MÁRGENES HISTÓRICOS', '')}
+      ${_chartPanel('af-c-fcfcfo','FCF y OP CASH FLOW', '')}
+      ${_chartPanel('af-c-ret',   'RETORNOS DE CAPITAL', '')}
+      ${_chartPanel('af-c-fcfm',  'FCF MARGIN', '')}
     </div>`;
 
   const years = data.map(d => `FY${String(d.year).slice(2)}`);
 
-  // Márgenes históricos (líneas múltiples)
-  _afChartInit('af-chart-margenes', chart => {
-    chart.setOption({
-      ..._afBaseOption(years),
-      yAxis: [{ type: 'value', axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9, formatter: v => `${v.toFixed(0)}%` },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } }],
-      legend: { data: ['Gross', 'EBIT', 'EBITDA', 'Net', 'FCF'],
-        textStyle: { color: '#94a3b8', fontSize: 9, fontFamily: MONO }, top: 0, right: 8 },
+  // Márgenes
+  _chart('af-c-marg', ch => {
+    ch.setOption({
+      ..._base(years),
+      yAxis: [_yaxPct()],
+      legend: _leg(['Gross','EBIT','EBITDA','Net','FCF']),
       series: [
-        { name: 'Gross',  type: 'line', data: data.map(d => d.gross_margin), symbol:'circle', symbolSize:4, lineStyle: {color:'#22d3ee', width:1.8}, itemStyle:{color:'#22d3ee'} },
-        { name: 'EBIT',   type: 'line', data: data.map(d => d.ebit_margin),  symbol:'circle', symbolSize:4, lineStyle: {color:'#a78bfa', width:1.8}, itemStyle:{color:'#a78bfa'} },
-        { name: 'EBITDA', type: 'line', data: data.map(d => d.ebitda_margin),symbol:'circle', symbolSize:4, lineStyle: {color:'#34d399', width:1.8}, itemStyle:{color:'#34d399'} },
-        { name: 'Net',    type: 'line', data: data.map(d => d.net_margin),   symbol:'circle', symbolSize:4, lineStyle: {color:'#38bdf8', width:1.8}, itemStyle:{color:'#38bdf8'} },
-        { name: 'FCF',    type: 'line', data: data.map(d => d.fcf_margin),   symbol:'circle', symbolSize:4, lineStyle: {color:'#f97316', width:1.8}, itemStyle:{color:'#f97316'} },
+        { name:'Gross',  type:'line', data:data.map(d=>d.gross_margin),  ...lineSeries(_CY) },
+        { name:'EBIT',   type:'line', data:data.map(d=>d.ebit_margin),   ...lineSeries(_SK) },
+        { name:'EBITDA', type:'line', data:data.map(d=>d.ebitda_margin), ...lineSeries(_VI) },
+        { name:'Net',    type:'line', data:data.map(d=>d.net_margin),    ...lineSeries(_GR) },
+        { name:'FCF',    type:'line', data:data.map(d=>d.fcf_margin),    ...lineSeries(_OR) },
       ],
-      tooltip: { ..._afTooltip(), valueFormatter: v => v != null ? `${Number(v).toFixed(1)}%` : '—' },
+      tooltip: { ..._tt(), valueFormatter: v => v!=null?`${v.toFixed(1)}%`:'—' },
     });
   });
 
-  // FCF y OCF
-  _afChartInit('af-chart-fcf-cfo', chart => {
+  // FCF / OCF
+  _chart('af-c-fcfcfo', ch => {
     const n = data.length;
-    chart.setOption({
-      ..._afBaseOption(years),
-      yAxis: [{ type: 'value', axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9,
-        formatter: v => `$${Math.abs(v) >= 1000 ? (v/1000).toFixed(0)+'B' : v.toFixed(0)+'M'}` },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } }],
-      legend: { data: ['FCF', 'Op Cash Flow'], textStyle: { color: '#94a3b8', fontSize: 9, fontFamily: MONO }, top: 0, right: 8 },
+    ch.setOption({
+      ..._base(years),
+      yAxis: [_yaxM()],
+      legend: _leg(['FCF','Op Cash Flow']),
       series: [
-        { name: 'FCF', type: 'bar', data: data.map((d, i) => ({
-            value: d.fcf ?? null, itemStyle: { color: _afRgba('#f97316', _afOpacity(i, n)) } })),
-          barGap: '-30%', barCategoryGap: '40%' },
-        { name: 'Op Cash Flow', type: 'bar', data: data.map((d, i) => ({
-            value: d.cfo ?? null, itemStyle: { color: _afRgba('#22d3ee', _afOpacity(i, n, 0.2)) } })) },
+        { name:'FCF',          type:'bar', data:data.map((d,i)=>({value:d.fcf, itemStyle:{color:_rgba(_OR,_op(i,n))}})), barGap:'-30%', barCategoryGap:'40%' },
+        { name:'Op Cash Flow', type:'bar', data:data.map((d,i)=>({value:d.cfo, itemStyle:{color:_rgba(_CY,_op(i,n,.2))}})) },
       ],
-      tooltip: { ..._afTooltip(), valueFormatter: v => v != null ? `$${v.toFixed(0)}M` : '—' },
+      tooltip: { ..._tt(), valueFormatter: v => v!=null?`$${v.toFixed(0)}M`:'—' },
     });
   });
 
-  // Retornos de capital (ROE, ROA, ROIC desde metrics — solo puntos actuales si no hay histórico)
-  _afChartInit('af-chart-retornos', chart => {
-    // Para el histórico de retornos no tenemos datos por año (Finnhub metrics es TTM),
-    // así que mostramos una barra comparativa de los ratios actuales
-    const ratioLabels = ['ROE', 'ROA', 'ROIC', 'Gross Margin', 'EBITDA Margin', 'FCF Margin'];
-    const ratioValues = [
-      metrics.roe_ttm ?? metrics.roe_annual,
-      metrics.roa_ttm,
-      metrics.roic_ttm,
-      metrics.gross_margin_ttm,
-      metrics.ebitda_margin_ttm,
-      metrics.fcf_margin_ttm,
-    ];
-    const ratioColors = ['#22d3ee', '#a78bfa', '#34d399', '#38bdf8', '#fbbf24', '#f97316'];
-    chart.setOption({
-      grid: { left: 80, right: 20, top: 12, bottom: 24 },
-      xAxis: { type: 'value', axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9, formatter: v => `${v.toFixed(0)}%` },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } },
-      yAxis: { type: 'category', data: ratioLabels,
-        axisLabel: { color: '#94a3b8', fontFamily: MONO, fontSize: 9.5 },
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } }, splitLine: { show: false } },
-      series: [{ type: 'bar', data: ratioValues.map((v, i) => ({
-          value: v ?? 0, itemStyle: { color: ratioColors[i] } })),
-        barMaxWidth: 28,
-        label: { show: true, position: 'right', color: '#94a3b8', fontFamily: MONO, fontSize: 9,
-          formatter: p => p.value != null && p.value !== 0 ? `${Number(p.value).toFixed(1)}%` : '—' } }],
-      tooltip: { ..._afTooltip(), valueFormatter: v => `${Number(v).toFixed(1)}%` },
-      backgroundColor: 'transparent',
+  // Retornos de capital (bar horizontal con valores actuales)
+  _chart('af-c-ret', ch => {
+    const labels = ['ROE','ROA','ROIC','Gross Margin','EBITDA Margin','Net Margin'];
+    const vals   = [metrics.roe_ttm,metrics.roa_ttm,metrics.roic_ttm,metrics.gross_margin_ttm,metrics.ebitda_margin_ttm,metrics.net_margin_ttm];
+    const cols   = [_CY,_VI,_GR,_SK,_PI,_OR];
+    ch.setOption({
+      grid: { left:70,right:16,top:8,bottom:8 },
+      xAxis: { type:'value', axisLabel:{color:'#475569',fontFamily:_MONO,fontSize:9,formatter:v=>`${v.toFixed(0)}%`}, splitLine:{lineStyle:{color:'rgba(255,255,255,.05)',type:'dashed'}}, axisLine:{lineStyle:{color:'rgba(255,255,255,.06)'}} },
+      yAxis: { type:'category', data:labels, axisLabel:{color:'#94a3b8',fontFamily:_MONO,fontSize:9.5}, axisLine:{lineStyle:{color:'rgba(255,255,255,.06)'}}, splitLine:{show:false} },
+      series: [{ type:'bar', data:vals.map((v,i)=>({value:v??0, itemStyle:{color:cols[i]}})), barMaxWidth:24,
+        label:{show:true,position:'right',color:'#94a3b8',fontFamily:_MONO,fontSize:9,
+          formatter:p=>p.value!=null&&p.value!==0?`${p.value.toFixed(1)}%`:'—'} }],
+      tooltip: { ..._tt(), valueFormatter: v=>`${v?.toFixed?.(1)||'—'}%` },
+      backgroundColor:'transparent',
     });
-  });
+  }, vals => !vals.some(v => v != null));
 
-  // FCF Margin histórico (línea con fill)
-  _afChartInit('af-chart-fcf-margin', chart => {
-    const fcfMData = data.map(d => d.fcf_margin ?? null);
-    chart.setOption({
-      ..._afBaseOption(years),
-      yAxis: [{ type: 'value', axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9, formatter: v => `${v.toFixed(0)}%` },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } }],
-      series: [{ name: 'FCF Margin', type: 'line', data: fcfMData,
-        smooth: false, symbol: 'circle', symbolSize: 6,
-        lineStyle: { color: '#f97316', width: 2.2 }, itemStyle: { color: '#f97316' },
-        areaStyle: { color: 'rgba(249,115,22,.08)' } }],
-      tooltip: { ..._afTooltip(), valueFormatter: v => v != null ? `${Number(v).toFixed(1)}%` : '—' },
+  // FCF Margin line
+  _chart('af-c-fcfm', ch => {
+    ch.setOption({
+      ..._base(years),
+      yAxis: [_yaxPct()],
+      series: [{ name:'FCF Margin', type:'line', data:data.map(d=>d.fcf_margin),
+        smooth:false, symbol:'circle', symbolSize:6,
+        lineStyle:{color:_OR,width:2.2}, itemStyle:{color:_OR}, areaStyle:{color:`${_OR}10`} }],
+      tooltip: { ..._tt(), valueFormatter: v => v!=null?`${v.toFixed(1)}%`:'—' },
     });
-  });
+  }, !data.some(d => d.fcf_margin != null));
 }
 
 
-/* ════════════════════════════════════════════════════════════════════════════
-   TAB 4: FINANCIERA
-   ════════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+   TAB: FINANCIERA
+   ══════════════════════════════════════════════════════════════════════════ */
 
-function _tabFinanciera(container, ticker, data) {
-  if (!data.length) { container.innerHTML = _afNoData('Sin datos financieros.'); return; }
+function _tabFinanciera(container, tk, data) {
+  if (!data.length) { container.innerHTML = _afEmpty('Sin datos financieros'); return; }
 
-  const last  = data[data.length - 1];
-  const prev  = data.length > 1 ? data[data.length - 2] : null;
-  const fy    = `FY${String(last.year).slice(2)}`;
+  const last = data[data.length - 1];
+  const prev = data.length > 1 ? data[data.length - 2] : null;
+  const fy   = `FY${String(last.year).slice(2)}`;
+  const ncNeg = last.net_cash != null && last.net_cash < 0;
 
-  const cash     = last.cash;
-  const debt     = last.total_debt;
-  const netCash  = last.net_cash;
-  const assets   = last.total_assets;
-  const equity   = last.equity;
-  const de       = last.de_ratio;
-  const fcf      = last.fcf;
-  const capex    = last.capex;
-
-  const _yoy = (curr, prevVal) => {
-    if (curr == null || prevVal == null || prevVal === 0) return null;
-    return ((curr - prevVal) / Math.abs(prevVal) * 100);
-  };
-
-  const cashYoy = _yoy(cash,    prev?.cash);
-  const ncYoy   = _yoy(netCash, prev?.net_cash);
-  const ncNeg   = netCash != null && netCash < 0;
-  const ncSub   = ncNeg ? 'Net Debt' : 'Posición positiva';
-
-  const cards = [
-    ['Cash & Equiv.', _afFmtB(_afM(cash)),                   fy,          cashYoy, false],
-    ['Deuda Total',   _afFmtB(_afM(debt)),                   fy,          null,    false],
-    ['Net Cash',      _afFmtB(_afM(netCash)),                ncSub,       ncYoy,   ncNeg],
-    ['Total Assets',  _afFmtB(_afM(assets)),                 fy,          null,    false],
-    ['Equity',        _afFmtB(_afM(equity)),                 fy,          null,    false],
-    ['Deuda/Equity',  de != null ? `${de.toFixed(2)}x` : '—', 'Leverage', null,    false],
-    ['FCF',           _afFmtB(_afM(fcf)),                    _marginStr(fcf, last.revenue), null, fcf != null && fcf < 0],
-    ['Capex',         capex != null ? _afFmtB(_afM(capex)) : '—', 'Inversión', null, false],
+  const kpis = [
+    { lbl:'CASH & EQUIV.',  val:_fmtM(last.cash),      sub:fy,                                                  badge:_yoy(last.cash,prev?.cash),   color:_CY },
+    { lbl:'DEUDA TOTAL',    val:_fmtM(last.total_debt), sub:fy,                                                  badge:null,                         color:_RE },
+    { lbl:'NET CASH',       val:_fmtM(last.net_cash),   sub:ncNeg?'Net Debt':'Pos. neta',                        badge:_yoy(last.net_cash,prev?.net_cash), color:ncNeg?_RE:_GR },
+    { lbl:'TOTAL ASSETS',   val:_fmtM(last.total_assets),sub:fy,                                                 badge:null,                         color:_VI },
+    { lbl:'EQUITY',         val:_fmtM(last.equity),     sub:fy,                                                  badge:null,                         color:_GR },
+    { lbl:'DEUDA/EQUITY',   val:last.de_ratio!=null?`${last.de_ratio.toFixed(2)}x`:'—', sub:'Leverage',          badge:null,                         color:_AM },
+    { lbl:'FCF',            val:_fmtM(last.fcf),        sub:_margin(last.fcf,last.revenue),                      badge:null,                         color:_OR },
+    { lbl:'CAPEX',          val:last.capex!=null?_fmtM(last.capex):'—', sub:'Inversión',                         badge:null,                         color:'#94a3b8' },
   ];
 
   container.innerHTML = `
-    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
-      ${cards.map((c, i) => _afKpiCard(c[0], c[1], c[2], c[3], _AF_FIN_COLORS[i % _AF_FIN_COLORS.length], c[4])).join('')}
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+      ${kpis.map(k => _kpi(k.lbl, k.val, k.sub, k.badge, k.color)).join('')}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div class="bt2-panel" style="padding:12px">
-        <div class="bt2-panel-hdr"><span class="bt2-panel-title">CASH vs DEUDA TOTAL</span></div>
-        <div id="af-chart-cash-debt" style="height:300px"></div>
-      </div>
-      <div class="bt2-panel" style="padding:12px">
-        <div class="bt2-panel-hdr"><span class="bt2-panel-title">NET CASH / NET DEBT</span></div>
-        <div id="af-chart-net-cash" style="height:300px"></div>
-      </div>
-      <div class="bt2-panel" style="padding:12px">
-        <div class="bt2-panel-hdr"><span class="bt2-panel-title">ASSETS vs EQUITY</span></div>
-        <div id="af-chart-assets-eq" style="height:300px"></div>
-      </div>
-      <div class="bt2-panel" style="padding:12px">
-        <div class="bt2-panel-hdr"><span class="bt2-panel-title">FCF vs CAPEX</span></div>
-        <div id="af-chart-fcf-capex" style="height:300px"></div>
-      </div>
+      ${_chartPanel('af-c-cashd', 'CASH vs DEUDA TOTAL', '')}
+      ${_chartPanel('af-c-netc',  'NET CASH / NET DEBT', '')}
+      ${_chartPanel('af-c-aseq',  'ASSETS vs EQUITY', '')}
+      ${_chartPanel('af-c-fcfcx', 'FCF vs CAPEX', '')}
     </div>`;
 
   const years = data.map(d => `FY${String(d.year).slice(2)}`);
   const n = data.length;
 
-  _afChartInit('af-chart-cash-debt', chart => {
-    chart.setOption({
-      ..._afBaseOption(years),
-      yAxis: [{ type: 'value', axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9,
-        formatter: v => `$${Math.abs(v) >= 1000 ? (v/1000).toFixed(0)+'B' : v.toFixed(0)+'M'}` },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } }],
-      legend: { data: ['Cash', 'Deuda'], textStyle: { color: '#94a3b8', fontSize: 9, fontFamily: MONO }, top: 0, right: 8 },
+  _chart('af-c-cashd', ch => {
+    ch.setOption({
+      ..._base(years),
+      yAxis: [_yaxM()],
+      legend: _leg(['Cash','Deuda']),
       series: [
-        { name: 'Cash',  type: 'bar', data: data.map((d, i) => ({ value: d.cash ?? null,
-            itemStyle: { color: _afRgba('#22d3ee', _afOpacity(i, n)) } })), barGap: '-30%', barCategoryGap: '40%' },
-        { name: 'Deuda', type: 'bar', data: data.map((d, i) => ({ value: d.total_debt ?? null,
-            itemStyle: { color: _afRgba('#ef4444', _afOpacity(i, n, 0.2)) } })) },
+        { name:'Cash',  type:'bar', data:data.map((d,i)=>({value:d.cash,       itemStyle:{color:_rgba(_CY,_op(i,n))}})), barGap:'-30%', barCategoryGap:'40%' },
+        { name:'Deuda', type:'bar', data:data.map((d,i)=>({value:d.total_debt, itemStyle:{color:_rgba(_RE,_op(i,n,.2))}})) },
       ],
-      tooltip: { ..._afTooltip(), valueFormatter: v => v != null ? `$${v.toFixed(0)}M` : '—' },
+      tooltip: { ..._tt(), valueFormatter: v => v!=null?`$${v.toFixed(0)}M`:'—' },
     });
   });
 
-  _afChartInit('af-chart-net-cash', chart => {
-    chart.setOption({
-      ..._afBaseOption(years),
-      yAxis: [{ type: 'value', axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9,
-        formatter: v => `$${Math.abs(v) >= 1000 ? (v/1000).toFixed(0)+'B' : v.toFixed(0)+'M'}` },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } }],
-      series: [{ name: 'Net Cash', type: 'bar', data: data.map((d, i) => ({
-          value: d.net_cash ?? null,
-          itemStyle: { color: _afRgba(d.net_cash >= 0 ? '#22c55e' : '#ef4444', _afOpacity(i, n)) } })) }],
-      tooltip: { ..._afTooltip(), valueFormatter: v => v != null ? `$${v.toFixed(0)}M` : '—' },
+  _chart('af-c-netc', ch => {
+    ch.setOption({
+      ..._base(years),
+      yAxis: [_yaxM()],
+      series: [{ name:'Net Cash', type:'bar',
+        data:data.map((d,i)=>({value:d.net_cash, itemStyle:{color:_rgba(d.net_cash>=0?_GR:_RE,_op(i,n))}})) }],
+      tooltip: { ..._tt(), valueFormatter: v => v!=null?`$${v.toFixed(0)}M`:'—' },
     });
   });
 
-  _afChartInit('af-chart-assets-eq', chart => {
-    chart.setOption({
-      ..._afBaseOption(years),
-      yAxis: [{ type: 'value', axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9,
-        formatter: v => `$${Math.abs(v) >= 1000 ? (v/1000).toFixed(0)+'B' : v.toFixed(0)+'M'}` },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } }],
-      legend: { data: ['Total Assets', 'Equity'], textStyle: { color: '#94a3b8', fontSize: 9, fontFamily: MONO }, top: 0, right: 8 },
+  _chart('af-c-aseq', ch => {
+    ch.setOption({
+      ..._base(years),
+      yAxis: [_yaxM()],
+      legend: _leg(['Total Assets','Equity']),
       series: [
-        { name: 'Total Assets', type: 'bar', data: data.map((d, i) => ({ value: d.total_assets ?? null,
-            itemStyle: { color: _afRgba('#a78bfa', _afOpacity(i, n, 0.2)) } })), barGap: '-30%', barCategoryGap: '40%' },
-        { name: 'Equity', type: 'bar', data: data.map((d, i) => ({ value: d.equity ?? null,
-            itemStyle: { color: _afRgba('#34d399', _afOpacity(i, n)) } })) },
+        { name:'Total Assets', type:'bar', data:data.map((d,i)=>({value:d.total_assets, itemStyle:{color:_rgba(_VI,_op(i,n,.2))}})), barGap:'-30%', barCategoryGap:'40%' },
+        { name:'Equity',       type:'bar', data:data.map((d,i)=>({value:d.equity,       itemStyle:{color:_rgba(_GR,_op(i,n))}})) },
       ],
-      tooltip: { ..._afTooltip(), valueFormatter: v => v != null ? `$${v.toFixed(0)}M` : '—' },
+      tooltip: { ..._tt(), valueFormatter: v => v!=null?`$${v.toFixed(0)}M`:'—' },
     });
   });
 
-  _afChartInit('af-chart-fcf-capex', chart => {
-    chart.setOption({
-      ..._afBaseOption(years),
-      yAxis: [{ type: 'value', axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9,
-        formatter: v => `$${Math.abs(v) >= 1000 ? (v/1000).toFixed(0)+'B' : v.toFixed(0)+'M'}` },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } }],
-      legend: { data: ['FCF', 'Capex'], textStyle: { color: '#94a3b8', fontSize: 9, fontFamily: MONO }, top: 0, right: 8 },
+  _chart('af-c-fcfcx', ch => {
+    ch.setOption({
+      ..._base(years),
+      yAxis: [_yaxM()],
+      legend: _leg(['FCF','Capex']),
       series: [
-        { name: 'FCF', type: 'bar', data: data.map((d, i) => ({ value: d.fcf ?? null,
-            itemStyle: { color: _afRgba('#f97316', _afOpacity(i, n)) } })), barGap: '-30%', barCategoryGap: '40%' },
-        { name: 'Capex', type: 'bar', data: data.map((d, i) => ({ value: -(d.capex ?? 0),
-            itemStyle: { color: _afRgba('#94a3b8', _afOpacity(i, n, 0.2)) } })) },
+        { name:'FCF',   type:'bar', data:data.map((d,i)=>({value:d.fcf,   itemStyle:{color:_rgba(_OR,_op(i,n))}})), barGap:'-30%', barCategoryGap:'40%' },
+        { name:'Capex', type:'bar', data:data.map((d,i)=>({value:d.capex!=null?-d.capex:null, itemStyle:{color:_rgba('#94a3b8',_op(i,n,.2))}})) },
       ],
-      tooltip: { ..._afTooltip(), valueFormatter: v => v != null ? `$${v.toFixed(0)}M` : '—' },
+      tooltip: { ..._tt(), valueFormatter: v => v!=null?`$${v.toFixed(0)}M`:'—' },
     });
   });
 }
 
 
-/* ════════════════════════════════════════════════════════════════════════════
-   TAB 5: VALUACIÓN
-   ════════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+   TAB: VALUACIÓN
+   ══════════════════════════════════════════════════════════════════════════ */
 
-function _tabValuacion(container, ticker, data, metrics, profile, candles) {
+function _tabValuacion(container, tk, data, metrics, profile, candles) {
   const last    = data.length ? data[data.length - 1] : null;
-  const mcapM   = profile.market_cap;   // millones USD
-  const shares  = profile.shares;       // millones de acciones
+  const mcapM   = profile.market_cap;
+  const shares  = profile.shares;
   const mcapUSD = mcapM ? mcapM * 1e6 : null;
-  const netCash = last?.net_cash;       // millones
-  const evUSD   = (mcapUSD != null && netCash != null)
-                    ? mcapUSD - (netCash * 1e6)
-                    : mcapUSD;
+  const netCash = last?.net_cash;
+  const evUSD   = (mcapUSD != null && netCash != null) ? mcapUSD - (netCash * 1e6) : mcapUSD;
+  const evM     = metrics.enterprise_value_m;
 
-  // Múltiplos desde metrics (yfinance)
-  const pe      = metrics.pe_ttm ?? metrics.pe_forward;
+  const pe      = metrics.pe_ttm;
+  const peF     = metrics.pe_forward;
   const ps      = metrics.ps_ttm;
   const pb      = metrics.pb_annual;
-  const evEbitda = metrics.ev_ebitda_ttm;   // puede ser negativo (CRWD tiene EBITDA < 0)
-  const evSalesM = metrics.ev_sales_ttm;
-  const pfcf    = (mcapM && metrics.fcf_ttm_m && metrics.fcf_ttm_m > 0)
-                    ? (mcapM / metrics.fcf_ttm_m) : null;
+  const evEbit  = metrics.ev_ebitda_ttm;
+  const evSales = metrics.ev_sales_ttm;
+  const pfcf    = (mcapM && metrics.fcf_ttm_m && metrics.fcf_ttm_m > 0) ? mcapM / metrics.fcf_ttm_m : null;
 
-  // Calcular EV/Sales desde datos propios si no viene de metrics
-  const lastRev  = last?.revenue;
-  const evSales  = evSalesM ?? ((evUSD && lastRev && lastRev > 0) ? evUSD / (lastRev * 1e6) : null);
+  const _mFmt = v => {
+    if (v == null) return '—';
+    const abs = Math.abs(v);
+    return abs > 999 ? 'N/A' : `${Number(v).toFixed(1)}x`;
+  };
 
-  // Price target y upside (calculados en backend desde yfinance consensus)
-  const targetPrice = metrics.target_price;
-  const upside      = metrics.upside;
+  const target = metrics.target_price;
+  const upside = metrics.upside;
+  const rec    = metrics.recommendation;
 
-  const _multFmt = v => v != null ? `${Number(v).toFixed(1)}x` : '—';
-  const _pctFmt  = v => v != null ? `${v >= 0 ? '+' : ''}${Number(v).toFixed(1)}%` : '—';
-
-  // EV/EBITDA: si es muy negativo (empresa sin EBITDA positivo), mostrar "N/A"
-  const evEbitdaStr = evEbitda != null
-    ? (Math.abs(evEbitda) > 999 ? 'N/A¹' : `${Number(evEbitda).toFixed(1)}x`)
-    : '—';
-
-  const kpiCards = [
-    ['Market Cap', mcapUSD != null ? _afFmtB(mcapUSD) : '—',   '—', null, false],
-    ['EV',         evUSD   != null ? _afFmtB(evUSD)   : '—',   '—', null, false],
-    ['P/E TTM',    _multFmt(pe),          pe != null ? 'trailing' : '—',  null, false],
-    ['P/FCF',      _multFmt(pfcf),        pfcf != null ? 'trailing' : '—', null, false],
-    ['P/S TTM',    _multFmt(ps),          '—', null, false],
-    ['EV/EBITDA',  evEbitdaStr,           '—', null, false],
+  const kpis = [
+    { lbl:'MARKET CAP',  val:mcapUSD!=null?_fmtB(mcapUSD):'—',         sub:'', badge:null, color:_CY },
+    { lbl:'EV',          val:evM!=null?_fmtB(evM*1e6):(evUSD!=null?_fmtB(evUSD):'—'), sub:'', badge:null, color:_VI },
+    { lbl:'P/E TTM',     val:_mFmt(pe),                                  sub:peF?`Fwd: ${_mFmt(peF)}`:'', badge:null, color:'#f1f5f9' },
+    { lbl:'EV/EBITDA',   val:_mFmt(evEbit),                             sub:'', badge:null, color:'#f1f5f9' },
+    { lbl:'P/FCF',       val:_mFmt(pfcf),                               sub:'', badge:null, color:'#f1f5f9' },
+    { lbl:'P/S TTM',     val:_mFmt(ps),                                  sub:'', badge:null, color:'#f1f5f9' },
   ];
-
-  // Si hay price target, agregar cards
-  const targetCards = (targetPrice != null) ? `
-    <div class="bt2-panel" style="padding:14px 18px;margin-bottom:14px">
-      <div style="font-size:.60rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-        color:#475569;margin-bottom:10px;font-family:${MONO}">CONSENSO DE ANALISTAS</div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap">
-        <div style="flex:1;min-width:130px">
-          <div style="font-size:.60rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-            color:#475569;margin-bottom:4px;font-family:${MONO}">PRECIO TARGET</div>
-          <div style="font-size:1.3rem;font-weight:700;color:${_AF_GOLD};font-family:${MONO}">
-            $${Number(targetPrice).toFixed(2)}
-          </div>
-        </div>
-        <div style="flex:1;min-width:130px">
-          <div style="font-size:.60rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-            color:#475569;margin-bottom:4px;font-family:${MONO}">UPSIDE POTENCIAL</div>
-          <div style="font-size:1.3rem;font-weight:700;
-            color:${upside != null ? (upside >= 0 ? '#22c55e' : '#ef4444') : '#94a3b8'};
-            font-family:${MONO}">
-            ${upside != null ? _pctFmt(upside) : '—'}
-          </div>
-        </div>
-        ${metrics.recommendation ? `
-        <div style="flex:1;min-width:130px">
-          <div style="font-size:.60rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-            color:#475569;margin-bottom:4px;font-family:${MONO}">RECOMENDACIÓN</div>
-          <div style="font-size:.95rem;font-weight:700;color:#f1f5f9;text-transform:uppercase;
-            font-family:${MONO}">${metrics.recommendation.replace(/_/g, ' ')}
-            ${metrics.num_analysts ? `<span style="color:#475569;font-size:.68rem;font-weight:400">
-              (${metrics.num_analysts} analistas)</span>` : ''}
-          </div>
-        </div>` : ''}
-      </div>
-    </div>` : '';
-
-  // Promedio histórico para P/E y P/S
-  const histPeAvg  = _afHistAvg(data, mcapUSD, 'net_income');
-  const histPsAvg  = _afHistAvg(data, mcapUSD, 'revenue');
 
   const multCards = [
-    { label: 'P/E',      curr: pe,     histAvg: histPeAvg },
-    { label: 'P/S',      curr: ps,     histAvg: histPsAvg },
-    { label: 'P/B',      curr: pb,     histAvg: null },
-    { label: 'P/FCF',    curr: pfcf,   histAvg: null },
-    { label: 'EV/Sales', curr: typeof evSales === 'number' ? evSales : null, histAvg: null },
-  ];
+    { l:'P/E',      v:pe,     avg:_histAvg(data,mcapUSD,'net_income') },
+    { l:'P/S',      v:ps,     avg:_histAvg(data,mcapUSD,'revenue') },
+    { l:'P/B',      v:pb,     avg:null },
+    { l:'P/FCF',    v:pfcf,   avg:null },
+    { l:'EV/Sales', v:evSales,avg:null },
+    { l:'EV/EBITDA',v:evEbit, avg:null },
+  ].map(({l,v,avg}) => {
+    const isNa = v != null && Math.abs(v) > 999;
+    const str  = isNa ? 'N/A' : (v != null ? `${v.toFixed(1)}x` : '—');
+    let comp = '<span style="color:#334155;font-size:.65rem">Sin histórico</span>';
+    if (!isNa && v != null && avg != null && avg > 0) {
+      const diff = (v - avg) / avg * 100;
+      const col  = diff > 0 ? _OR : _GR;
+      const arr  = diff > 0 ? '▲' : '▼';
+      comp = `<span style="color:${col};font-size:.65rem;font-weight:600;font-family:${_MONO}">
+        ${arr} ${Math.abs(diff).toFixed(1)}% vs hist (${avg.toFixed(1)}x)</span>`;
+    }
+    return `<div style="flex:1;min-width:130px;background:#0d1424;border:1px solid rgba(148,163,184,.08);
+      border-radius:9px;padding:12px 14px">
+      <div style="font-size:.57rem;font-weight:700;letter-spacing:.10em;text-transform:uppercase;
+        color:#334155;margin-bottom:5px;font-family:${_MONO}">${l}</div>
+      <div style="font-size:1.3rem;font-weight:700;color:#f1f5f9;font-family:${_MONO}">${str}</div>
+      <div style="margin-top:4px">${comp}</div>
+    </div>`;
+  });
 
   const hasCandles = candles?.status === 'ok' && candles?.dates?.length > 0;
 
   container.innerHTML = `
-    <!-- KPI cards superiores -->
     <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">
-      ${kpiCards.map((c, i) => _afKpiCard(c[0], c[1], c[2], c[3],
-          _AF_VAL_COLORS[i % _AF_VAL_COLORS.length], c[4])).join('')}
+      ${kpis.map(k => _kpi(k.lbl, k.val, k.sub, k.badge, k.color)).join('')}
     </div>
 
-    ${targetCards}
+    ${(target != null || rec) ? `
+    <div class="bt2-panel" style="padding:14px 18px;margin-bottom:14px">
+      <div style="font-size:.60rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+        color:#475569;margin-bottom:10px;font-family:${_MONO}">CONSENSO ANALISTAS</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap">
+        ${target!=null?`<div>
+          <div style="font-size:.57rem;text-transform:uppercase;letter-spacing:.09em;color:#334155;margin-bottom:3px;font-family:${_MONO}">PRECIO TARGET</div>
+          <div style="font-size:1.25rem;font-weight:700;color:${_G};font-family:${_MONO}">$${Number(target).toFixed(2)}</div>
+        </div>`:''}
+        ${upside!=null?`<div>
+          <div style="font-size:.57rem;text-transform:uppercase;letter-spacing:.09em;color:#334155;margin-bottom:3px;font-family:${_MONO}">UPSIDE POTENCIAL</div>
+          <div style="font-size:1.25rem;font-weight:700;color:${upside>=0?_GR:_RE};font-family:${_MONO}">${upside>=0?'+':''}${upside.toFixed(1)}%</div>
+        </div>`:''}
+        ${rec?`<div>
+          <div style="font-size:.57rem;text-transform:uppercase;letter-spacing:.09em;color:#334155;margin-bottom:3px;font-family:${_MONO}">RECOMENDACIÓN</div>
+          <div style="font-size:.95rem;font-weight:700;color:#f1f5f9;text-transform:uppercase;font-family:${_MONO}">${rec.replace(/_/g,' ')}${metrics.num_analysts?` <span style="color:#475569;font-size:.65rem">(${metrics.num_analysts})</span>`:''}</div>
+        </div>`:''}
+      </div>
+    </div>` : ''}
 
-    <!-- Múltiplos vs histórico -->
-    <div style="font-size:.60rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-      color:#475569;margin-bottom:8px;font-family:${MONO}">MÚLTIPLOS VS PROMEDIO HISTÓRICO</div>
+    <div style="font-size:.58rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+      color:#475569;margin-bottom:8px;font-family:${_MONO}">MÚLTIPLOS VS PROMEDIO HISTÓRICO</div>
     <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
-      ${multCards.map(m => _afMultCard(m.label, m.curr, m.histAvg)).join('')}
+      ${multCards.join('')}
     </div>
 
-    <!-- Gráficos 2×2 -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div class="bt2-panel" style="padding:12px">
-        <div class="bt2-panel-hdr"><span class="bt2-panel-title">P/E HISTÓRICO</span></div>
-        <div id="af-chart-pe" style="height:300px"></div>
-      </div>
-      <div class="bt2-panel" style="padding:12px">
-        <div class="bt2-panel-hdr"><span class="bt2-panel-title">P/S y P/FCF HISTÓRICO</span></div>
-        <div id="af-chart-ps-pfcf" style="height:300px"></div>
-      </div>
-      <div class="bt2-panel" style="padding:12px">
-        <div class="bt2-panel-hdr"><span class="bt2-panel-title">MARKET CAP (HIST.)</span></div>
-        <div id="af-chart-mcap" style="height:300px"></div>
-      </div>
-      <div class="bt2-panel" style="padding:12px">
-        <div class="bt2-panel-hdr">
-          <span class="bt2-panel-title">PRECIO HISTÓRICO (SEMANAL)</span>
-          ${hasCandles ? `<span class="bt2-panel-sub">${candles.dates.at(-1)?.slice(0,10)} — ${candles.closes.at(-1)?.toFixed(2)} USD</span>` : ''}
-        </div>
-        <div id="af-chart-precio" style="height:300px"></div>
-      </div>
-    </div>
-    ${evEbitdaStr === 'N/A¹' ? `<div style="font-family:${MONO};font-size:.65rem;color:#475569;margin-top:8px">
-      ¹ EV/EBITDA no aplica cuando el EBITDA estimado es negativo (empresa en fase de crecimiento/pérdida operativa).
-    </div>` : ''}`;
+      ${_chartPanel('af-c-pe',    'P/E HISTÓRICO', '')}
+      ${_chartPanel('af-c-pspf',  'P/S y P/FCF HISTÓRICO', '')}
+      ${_chartPanel('af-c-mcap',  'MARKET CAP (HIST.)', '')}
+      ${_chartPanel('af-c-px',    'PRECIO HISTÓRICO (SEMANAL)',
+          hasCandles?`${candles.dates.at(-1)?.slice(0,10)} — $${candles.closes.at(-1)?.toFixed(2)}`:'')}
+    </div>`;
 
   const years    = data.map(d => `FY${String(d.year).slice(2)}`);
   const n        = data.length;
-  const histMult = _afComputeHistMult(data, candles, shares);
+  const hist     = _computeHistMult(data, candles, shares);
 
   // P/E histórico
-  const peHist    = histMult.map(h => (h.pe && h.pe > 0 && h.pe < 500) ? h.pe : null);
-  const hasHistPe = peHist.some(v => v != null);
-  _afChartInit('af-chart-pe', chart => {
-    chart.setOption({
-      ..._afBaseOption(years),
-      yAxis: [{ type: 'value',
-        axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9, formatter: v => `${v.toFixed(0)}x` },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } }],
-      series: hasHistPe
-        ? [{ name: 'P/E', type: 'line', data: peHist, smooth: false, symbol: 'circle', symbolSize: 5,
-             lineStyle: { color: '#22d3ee', width: 2.2 }, itemStyle: { color: '#22d3ee' } }]
-        : (pe && pe > 0 && pe < 500)
-          ? [{ name: 'P/E TTM', type: 'scatter', data: [[years.at(-1), pe]],
-               symbolSize: 10, itemStyle: { color: '#22d3ee' } }]
-          : [],
-      tooltip: { ..._afTooltip(), valueFormatter: v => v != null ? `${Number(v).toFixed(1)}x` : '—' },
+  const peHist = hist.map(h => (h.pe && h.pe > 0 && h.pe < 400) ? h.pe : null);
+  _chart('af-c-pe', ch => {
+    ch.setOption({
+      ..._base(years),
+      yAxis: [_yaxX()],
+      series: [{ name:'P/E', type:'line', data:peHist, smooth:false, symbol:'circle', symbolSize:5,
+        lineStyle:{color:_CY,width:2.2}, itemStyle:{color:_CY} }],
+      tooltip: { ..._tt(), valueFormatter: v => v!=null?`${v.toFixed(1)}x`:'—' },
     });
-  }, { hasData: hasHistPe || (pe != null && pe > 0 && pe < 500),
-       emptyMsg: 'P/E no disponible (empresa no rentable o múltiplo extremo)' });
+  }, !peHist.some(v=>v!=null));
 
-  // P/S y P/FCF histórico
-  const psHist   = histMult.map(h => (h.ps   && h.ps   < 500)  ? h.ps   : null);
-  const pfcfHist = histMult.map(h => (h.pfcf && h.pfcf < 1000) ? h.pfcf : null);
-  const hasPsData = psHist.some(v => v != null) || pfcfHist.some(v => v != null);
-  _afChartInit('af-chart-ps-pfcf', chart => {
-    chart.setOption({
-      ..._afBaseOption(years),
-      yAxis: [{ type: 'value',
-        axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9, formatter: v => `${v.toFixed(0)}x` },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } }],
-      legend: { data: ['P/S', 'P/FCF'], textStyle: { color: '#94a3b8', fontSize: 9, fontFamily: MONO }, top: 0, right: 8 },
+  // P/S + P/FCF
+  const psH   = hist.map(h => (h.ps   && h.ps<400)   ? h.ps   : null);
+  const pfcfH = hist.map(h => (h.pfcf && h.pfcf<800) ? h.pfcf : null);
+  _chart('af-c-pspf', ch => {
+    ch.setOption({
+      ..._base(years),
+      yAxis: [_yaxX()],
+      legend: _leg(['P/S','P/FCF']),
       series: [
-        { name: 'P/S',   type: 'line', data: psHist,   smooth: false, symbol: 'circle', symbolSize: 5,
-          lineStyle: { color: '#22d3ee', width: 2 }, itemStyle: { color: '#22d3ee' } },
-        { name: 'P/FCF', type: 'line', data: pfcfHist, smooth: false, symbol: 'circle', symbolSize: 5,
-          lineStyle: { color: '#a78bfa', width: 2, type: 'dashed' }, itemStyle: { color: '#a78bfa' } },
+        { name:'P/S',   type:'line', data:psH,   ...lineSeries(_CY) },
+        { name:'P/FCF', type:'line', data:pfcfH, ...lineSeries2(_VI) },
       ],
-      tooltip: { ..._afTooltip(), valueFormatter: v => v != null ? `${Number(v).toFixed(1)}x` : '—' },
+      tooltip: { ..._tt(), valueFormatter: v => v!=null?`${v.toFixed(1)}x`:'—' },
     });
-  }, { hasData: hasPsData, emptyMsg: 'Sin histórico de P/S o P/FCF disponible' });
+  }, !psH.some(v=>v!=null) && !pfcfH.some(v=>v!=null));
 
-  // Market Cap histórico
-  const mcapHist    = histMult.map(h => h.hist_mcap ? h.hist_mcap / 1e9 : null);
-  const hasMcapData = mcapHist.some(v => v != null);
-  _afChartInit('af-chart-mcap', chart => {
-    chart.setOption({
-      ..._afBaseOption(years),
-      yAxis: [{ type: 'value',
-        axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9, formatter: v => `$${v.toFixed(0)}B` },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } }],
-      series: [{ name: 'Market Cap', type: 'bar',
-        data: mcapHist.map((v, i) => ({ value: v, itemStyle: { color: _afRgba('#22d3ee', _afOpacity(i, n)) } })) }],
-      tooltip: { ..._afTooltip(), valueFormatter: v => v != null ? `$${Number(v).toFixed(1)}B` : '—' },
+  // Market Cap
+  const mcapH = hist.map(h => h.hist_mcap ? h.hist_mcap / 1e9 : null);
+  _chart('af-c-mcap', ch => {
+    ch.setOption({
+      ..._base(years),
+      yAxis: [{ type:'value', axisLabel:{color:'#475569',fontFamily:_MONO,fontSize:9,formatter:v=>`$${v.toFixed(0)}B`}, splitLine:{lineStyle:{color:'rgba(255,255,255,.05)',type:'dashed'}}, axisLine:{lineStyle:{color:'rgba(255,255,255,.06)'}} }],
+      series: [{ name:'Mkt Cap', type:'bar', data:mcapH.map((v,i)=>({value:v, itemStyle:{color:_rgba(_CY,_op(i,n))}})) }],
+      tooltip: { ..._tt(), valueFormatter: v => v!=null?`$${v.toFixed(1)}B`:'—' },
     });
-  }, { hasData: hasMcapData || mcapUSD != null,
-       emptyMsg: 'Sin datos de capitalización histórica' });
+  }, !mcapH.some(v=>v!=null) && mcapUSD==null);
 
-  // Precio histórico semanal
-  _afChartInit('af-chart-precio', chart => {
-    chart.setOption({
-      grid: { left: 12, right: 12, top: 8, bottom: 24, containLabel: true },
-      xAxis: { type: 'category', data: candles.dates, boundaryGap: false,
-        axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 8.5,
-          formatter: d => d.slice(0, 7),
-          interval: Math.max(0, Math.floor(candles.dates.length / 8) - 1) },
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } }, splitLine: { show: false } },
-      yAxis: { type: 'value',
-        axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9,
-          formatter: v => `$${v >= 1000 ? (v/1000).toFixed(0)+'K' : v.toFixed(0)}` },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } },
-      series: [{ name: ticker, type: 'line', data: candles.closes,
-        smooth: false, symbol: 'none',
-        lineStyle: { color: '#a78bfa', width: 1.5 },
-        areaStyle: { color: 'rgba(167,139,250,.07)' } }],
-      tooltip: { trigger: 'axis', backgroundColor: '#0d1424',
-        borderColor: 'rgba(255,255,255,.12)', borderWidth: 1, padding: [8, 12],
-        textStyle: { fontFamily: MONO, fontSize: 11, color: '#f1f5f9' },
-        formatter: params => {
-          const p = params[0];
-          return `<div style="font-family:${MONO};font-size:10px">
-            <div style="color:#94a3b8;margin-bottom:4px">${p.axisValue}</div>
-            <div style="font-weight:700;color:#a78bfa">$${Number(p.value).toFixed(2)}</div>
-          </div>`;
-        } },
-      backgroundColor: 'transparent',
+  // Precio histórico
+  _chart('af-c-px', ch => {
+    ch.setOption({
+      grid:{left:12,right:12,top:8,bottom:24,containLabel:true},
+      xAxis:{type:'category',data:candles.dates,boundaryGap:false,
+        axisLabel:{color:'#475569',fontFamily:_MONO,fontSize:8,formatter:d=>d.slice(0,7),
+          interval:Math.max(0,Math.floor(candles.dates.length/8)-1)},
+        axisLine:{lineStyle:{color:'rgba(255,255,255,.06)'}},splitLine:{show:false}},
+      yAxis:{type:'value',
+        axisLabel:{color:'#475569',fontFamily:_MONO,fontSize:9,
+          formatter:v=>`$${v>=1000?(v/1000).toFixed(0)+'K':v.toFixed(0)}`},
+        splitLine:{lineStyle:{color:'rgba(255,255,255,.05)',type:'dashed'}},
+        axisLine:{lineStyle:{color:'rgba(255,255,255,.06)'}}},
+      series:[{name:tk,type:'line',data:candles.closes,smooth:false,symbol:'none',
+        lineStyle:{color:_VI,width:1.5},areaStyle:{color:`${_VI}10`}}],
+      tooltip:{trigger:'axis',backgroundColor:'#0d1424',borderColor:'rgba(255,255,255,.12)',
+        borderWidth:1,padding:[8,12],textStyle:{fontFamily:_MONO,fontSize:11,color:'#f1f5f9'},
+        formatter:params=>{const p=params[0];return `<div style="font-family:${_MONO};font-size:10px">
+          <div style="color:#94a3b8;margin-bottom:3px">${p.axisValue}</div>
+          <div style="font-weight:700;color:${_VI}">$${Number(p.value).toFixed(2)}</div></div>`;}},
+      backgroundColor:'transparent',
     });
-  }, { hasData: hasCandles, emptyMsg: 'Sin datos de precio histórico disponibles para este ticker' });
+  }, !hasCandles);
 }
 
 
-/* ── Helpers ─────────────────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════════
+   TAB: RANKING IA
+   ══════════════════════════════════════════════════════════════════════════ */
 
-// Convierte millones → dólares y formatea. Acepta null → '—'
-function _afM(v) { return v != null ? v * 1e6 : null; }
+function _tabRanking(container, tk) {
+  container.innerHTML = `
+    <div class="bt2-panel" style="padding:28px 24px;text-align:center;max-width:640px;margin:0 auto">
+      <div style="font-size:2rem;margin-bottom:12px">⭐</div>
+      <div style="font-size:1rem;font-weight:700;color:#f1f5f9;font-family:${_MONO};
+        letter-spacing:-.01em;margin-bottom:8px">Ranking IA — Próximamente</div>
+      <div style="color:#94a3b8;font-size:.78rem;line-height:1.65;margin-bottom:20px">
+        Este módulo generará un ranking de las 13 empresas para el inversor argentino
+        con horizonte 2-5 años, considerando sector, macro, momentum y valuación.
+      </div>
 
-function _afFmtB(usdRaw) {
-  if (usdRaw == null) return '—';
-  const abs = Math.abs(usdRaw);
-  const sign = usdRaw < 0 ? '-' : '';
-  if (abs >= 1e12) return `${sign}$${(abs / 1e12).toFixed(1)}T`;
-  if (abs >= 1e9)  return `${sign}$${(abs / 1e9).toFixed(1)}B`;
-  if (abs >= 1e6)  return `${sign}$${(abs / 1e6).toFixed(1)}M`;
-  if (abs >= 1e3)  return `${sign}$${(abs / 1e3).toFixed(1)}K`;
-  return `${sign}$${abs.toFixed(0)}`;
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:20px;text-align:left">
+        ${['📊 Score Fundamental','📈 Score Crecimiento','💰 Score Rentabilidad',
+           '🎯 Score Valuación','🏦 Score Financiero','⚡ Score Global'].map(s => `
+          <div style="background:rgba(13,20,36,.8);border:1px solid rgba(148,163,184,.08);
+            border-radius:8px;padding:10px 12px">
+            <div style="font-size:.72rem;color:#94a3b8;font-family:${_MONO}">${s}</div>
+            <div style="font-size:1.1rem;font-weight:700;color:#334155;margin-top:4px;font-family:${_MONO}">—/10</div>
+          </div>`).join('')}
+      </div>
+
+      <button disabled
+        style="background:${_GD};border:1px solid ${_GB};color:${_G};
+          padding:8px 20px;border-radius:8px;font-family:${_MONO};font-size:.78rem;
+          font-weight:700;opacity:.5;cursor:not-allowed">
+        ⭐ Generar Ranking IA
+      </button>
+      <div style="font-family:${_MONO};font-size:.62rem;color:#334155;margin-top:8px">
+        Requiere configurar ANTHROPIC_API_KEY en secrets
+      </div>
+    </div>`;
 }
 
-function _marginStr(num, den) {
-  if (num == null || den == null || den === 0) return '';
-  return `Margen ${(num / den * 100).toFixed(1)}%`;
-}
 
-function _afRgba(hex, alpha) {
-  const h = hex.replace('#', '');
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  return `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
-}
+/* ══════════════════════════════════════════════════════════════════════════
+   TAB: COMPARAR
+   ══════════════════════════════════════════════════════════════════════════ */
 
-function _afOpacity(i, n, minOp = 0.25) {
-  if (n <= 1) return 1.0;
-  return minOp + (1.0 - minOp) * i / (n - 1);
-}
+async function _tabComparar(container) {
+  container.innerHTML = `
+    <div class="bt2-panel" style="padding:14px 18px">
+      <div class="bt2-panel-hdr">
+        <span class="bt2-panel-title">COMPARATIVA — 13 TICKERS CURADOS</span>
+        <span class="bt2-panel-sub" id="cmp-sub">Cargando…</span>
+      </div>
+      <div id="cmp-body" class="bt2-snapshot-scroll" style="overflow-x:auto">
+        ${[...Array(6)].map(()=>`<div class="skeleton" style="height:32px;border-radius:4px;margin-bottom:4px"></div>`).join('')}
+      </div>
+    </div>`;
 
-function _afKpiCard(label, value, sub, delta, color, valueIsNeg = false) {
-  let badge = '';
-  if (delta != null) {
-    const vIsNeg = valueIsNeg || false;
-    const col  = vIsNeg ? '#ef4444' : (delta >= 0 ? '#22c55e' : '#ef4444');
-    const bg   = vIsNeg ? 'rgba(239,68,68,.12)' : (delta >= 0 ? 'rgba(34,197,94,.12)' : 'rgba(239,68,68,.12)');
-    const arrow= vIsNeg ? '▼' : (delta >= 0 ? '▲' : '▼');
-    const sign = delta >= 0 ? '+' : '';
-    const d    = Math.abs(delta) >= 100 ? delta.toFixed(0) : delta.toFixed(1);
-    badge = `<span style="background:${bg};color:${col};border:1px solid ${col}33;
-      border-radius:4px;padding:1px 5px;font-size:.68rem;font-weight:700;
-      margin-left:4px;white-space:nowrap;font-family:${MONO}">${arrow} ${sign}${d}%</span>`;
+  try {
+    const summaries = await api.fundamental.compare();
+    _renderCompareTable(document.getElementById('cmp-body'), summaries);
+    const sub = document.getElementById('cmp-sub');
+    if (sub) sub.textContent = `${summaries.filter(s=>!s.error).length} tickers`;
+  } catch (e) {
+    document.getElementById('cmp-body').innerHTML = `
+      <div style="padding:16px;font-family:${_MONO};color:var(--negative);font-size:.78rem">
+        Error cargando comparativa: ${e.message}
+      </div>`;
   }
-  const vlen  = String(value).length;
-  const vfont = vlen > 8 ? '1.00rem' : vlen > 6 ? '1.15rem' : '1.25rem';
+}
 
-  return `<div style="flex:1;min-width:110px;background:linear-gradient(145deg,#0d1424,#111d35);
-    border:1px solid rgba(148,163,184,.10);border-top:2px solid ${color};
-    border-radius:10px;padding:12px 14px;overflow:hidden">
-    <div style="font-size:.60rem;font-weight:700;letter-spacing:.10em;text-transform:uppercase;
-      color:#475569;margin-bottom:5px;white-space:nowrap;font-family:${MONO}">${label}</div>
-    <div style="font-size:${vfont};font-weight:700;color:#f1f5f9;line-height:1.1;
-      white-space:nowrap;font-family:${MONO}">${value}</div>
-    <div style="margin-top:5px;font-size:.70rem;color:#94a3b8;display:flex;align-items:center;
-      flex-wrap:wrap;gap:3px;font-family:${MONO}">
-      <span>${sub || ''}</span>${badge}
+function _renderCompareTable(el, summaries) {
+  const cols = [
+    { key:'ticker',      hdr:'TICKER',     fmt:(s)=>`<span style="font-weight:700;color:${_G};font-family:${_MONO};cursor:pointer" onclick="document.getElementById('af-p-${s.ticker}')?.click()||document.getElementById('af-input').value='${s.ticker}'">${s.ticker}</span>`, align:'left' },
+    { key:'name',        hdr:'EMPRESA',    fmt:s=>`<span style="color:#94a3b8;font-size:.72rem">${(s.name||'').split(' ').slice(0,3).join(' ')}</span>`, align:'left' },
+    { key:'sector',      hdr:'SECTOR',     fmt:s=>`<span style="color:#64748b;font-size:.65rem">${s.sector||'—'}</span>`, align:'left' },
+    { key:'market_cap',  hdr:'MKT CAP',    fmt:s=>s.market_cap!=null?_fmtB(s.market_cap*1e6):'—',        num:true, color:null },
+    { key:'revenue',     hdr:`REV FY`,     fmt:s=>s.revenue!=null?_fmtM(s.revenue):'—',                   num:true, color:null },
+    { key:'revenue_yoy', hdr:'REV YoY',    fmt:s=>_fmtPct(s.revenue_yoy),                                  num:true, pct:true },
+    { key:'gross_margin',hdr:'GP%',        fmt:s=>_fmtPct1(s.gross_margin),                                num:true, pct:true },
+    { key:'ebitda_margin',hdr:'EBITDA%',   fmt:s=>_fmtPct1(s.ebitda_margin),                               num:true, pct:true },
+    { key:'fcf_margin',  hdr:'FCF%',       fmt:s=>_fmtPct1(s.fcf_margin),                                  num:true, pct:true },
+    { key:'roe',         hdr:'ROE',        fmt:s=>_fmtPct1(s.roe),                                          num:true, pct:true },
+    { key:'pe_ttm',      hdr:'P/E',        fmt:s=>s.pe_ttm!=null?`${s.pe_ttm.toFixed(1)}x`:'—',            num:true, lower:true },
+    { key:'ps_ttm',      hdr:'P/S',        fmt:s=>s.ps_ttm!=null?`${s.ps_ttm.toFixed(1)}x`:'—',            num:true, lower:true },
+    { key:'ev_ebitda',   hdr:'EV/EBITDA',  fmt:s=>{const v=s.ev_ebitda;return v!=null&&Math.abs(v)<999?`${v.toFixed(1)}x`:'N/A';}, num:true, lower:true },
+    { key:'beta',        hdr:'BETA',       fmt:s=>s.beta!=null?s.beta.toFixed(2):'—',                      num:true, color:null },
+    { key:'rev_cagr_3y', hdr:'CAGR 3Y',   fmt:s=>_fmtPct1(s.rev_cagr_3y),                                 num:true, pct:true },
+  ];
+
+  // Calcular best values para highlight
+  const best = {};
+  cols.filter(c => c.num).forEach(c => {
+    const vals = summaries.filter(s=>!s.error).map(s=>s[c.key]).filter(v=>v!=null&&isFinite(v));
+    if (!vals.length) return;
+    best[c.key] = c.lower ? Math.min(...vals) : Math.max(...vals);
+  });
+
+  const thStyle = `padding:6px 10px;font-family:${_MONO};font-size:.57rem;font-weight:700;
+    text-transform:uppercase;letter-spacing:.08em;color:#334155;white-space:nowrap;
+    border-bottom:2px solid rgba(148,163,184,.12)`;
+  const tdStyle = (right, isBest, pctCol, v) => {
+    let col = '#94a3b8';
+    if (pctCol && v != null) col = v > 0 ? '#22c55e' : v < 0 ? '#ef4444' : '#94a3b8';
+    const bg = isBest ? 'rgba(212,175,55,.08)' : 'transparent';
+    return `padding:6px 10px;font-family:${_MONO};font-size:.75rem;
+      text-align:${right?'right':'left'};color:${col};background:${bg};
+      border-bottom:1px solid rgba(148,163,184,.05);white-space:nowrap`;
+  };
+
+  const headers = cols.map(c => `<th style="${thStyle};text-align:${c.align||'right'}">${c.hdr}</th>`).join('');
+
+  const rows = summaries.map(s => {
+    if (s.error) return `<tr><td colspan="${cols.length}" style="padding:6px 10px;color:#334155;
+      font-family:${_MONO};font-size:.72rem">${s.ticker} — sin datos</td></tr>`;
+    return `<tr class="bt2-row">${cols.map(c => {
+      const raw = s[c.key];
+      const isBest = c.num && best[c.key] != null && raw != null && Math.abs(raw - best[c.key]) < 0.0001;
+      return `<td style="${tdStyle(c.align !== 'left', isBest, c.pct, raw)}">${c.fmt(s)}</td>`;
+    }).join('')}</tr>`;
+  }).join('');
+
+  el.innerHTML = `<table class="bt2-table" style="min-width:900px">
+    <thead><tr>${headers}</tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   CHART HELPERS
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function _chartPanel(id, title, sub) {
+  return `<div class="bt2-panel" style="padding:12px">
+    <div class="bt2-panel-hdr">
+      <span class="bt2-panel-title">${title}</span>
+      ${sub ? `<span class="bt2-panel-sub">${sub}</span>` : ''}
     </div>
+    <div id="${id}" style="height:280px"></div>
   </div>`;
 }
 
-function _afMultCard(label, curr, histAvg) {
-  let valStr = '—';
-  let compEl = '<span style="color:#475569;font-size:.72rem">Sin histórico</span>';
-
-  if (curr != null) {
-    valStr = `${Number(curr).toFixed(1)}x`;
-    if (histAvg != null && histAvg > 0) {
-      const diff = (curr - histAvg) / histAvg * 100;
-      const color = diff > 0 ? '#f97316' : '#22c55e';
-      const arrow = diff > 0 ? '▲' : '▼';
-      compEl = `<span style="color:${color};font-size:.72rem;font-weight:600;font-family:${MONO}">
-        ${arrow} ${Math.abs(diff).toFixed(1)}% vs hist (${histAvg.toFixed(1)}x)</span>`;
-    }
+function _chart(id, fn, noData = false, emptyMsg = 'Sin datos disponibles para este gráfico') {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const ex = echarts.getInstanceByDom(el);
+  if (ex) ex.dispose();
+  if (noData) {
+    el.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;
+      height:100%;font-family:${_MONO};color:#334155;font-size:.72rem;
+      text-align:center;padding:16px">${emptyMsg}</div>`;
+    return;
   }
-
-  return `<div style="flex:1;min-width:150px;background:#0d1424;border:1px solid rgba(148,163,184,.10);
-    border-radius:10px;padding:12px 16px">
-    <div style="font-size:.60rem;font-weight:700;letter-spacing:.10em;text-transform:uppercase;
-      color:#475569;margin-bottom:6px;font-family:${MONO}">${label}</div>
-    <div style="font-size:1.3rem;font-weight:700;color:#f1f5f9;font-family:${MONO}">${valStr}</div>
-    <div style="margin-top:4px">${compEl}</div>
-  </div>`;
+  const ch = echarts.init(el, 'dcf');
+  try { fn(ch); } catch (e) {
+    console.warn(`[AF] chart ${id}:`, e);
+    el.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;
+      height:100%;font-family:${_MONO};color:#334155;font-size:.72rem">
+      Error al renderizar</div>`;
+    return;
+  }
+  ch.resize();
+  new ResizeObserver(() => { try { ch.resize(); } catch(_) {} }).observe(el);
 }
 
-function _afHistAvg(data, mcapUSD, col) {
+// Base option reutilizable
+function _base(xData) {
+  return {
+    grid: { left:12, right:16, top:28, bottom:24, containLabel:true },
+    xAxis: [{ type:'category', data:xData, boundaryGap:true,
+      axisLabel:{color:'#475569',fontFamily:_MONO,fontSize:9.5},
+      axisLine:{lineStyle:{color:'rgba(255,255,255,.06)'}}, splitLine:{show:false} }],
+    backgroundColor:'transparent',
+  };
+}
+
+function _yaxM() {
+  return { type:'value', axisLabel:{color:'#475569',fontFamily:_MONO,fontSize:9,
+    formatter:v=>`$${Math.abs(v)>=1000?(v/1000).toFixed(0)+'B':v.toFixed(0)+'M'}`},
+    splitLine:{lineStyle:{color:'rgba(255,255,255,.05)',type:'dashed'}},
+    axisLine:{lineStyle:{color:'rgba(255,255,255,.06)'}} };
+}
+
+function _yaxPct() {
+  return { type:'value', axisLabel:{color:'#475569',fontFamily:_MONO,fontSize:9,formatter:v=>`${v.toFixed(0)}%`},
+    splitLine:{lineStyle:{color:'rgba(255,255,255,.05)',type:'dashed'}},
+    axisLine:{lineStyle:{color:'rgba(255,255,255,.06)'}} };
+}
+
+function _yaxX() {
+  return { type:'value', axisLabel:{color:'#475569',fontFamily:_MONO,fontSize:9,formatter:v=>`${v.toFixed(0)}x`},
+    splitLine:{lineStyle:{color:'rgba(255,255,255,.05)',type:'dashed'}},
+    axisLine:{lineStyle:{color:'rgba(255,255,255,.06)'}} };
+}
+
+function _tt() {
+  return { trigger:'axis', backgroundColor:'#0d1424',
+    borderColor:'rgba(255,255,255,.12)',borderWidth:1,padding:[10,14],
+    textStyle:{fontFamily:_MONO,fontSize:11,color:'#f1f5f9'},
+    axisPointer:{lineStyle:{color:'rgba(255,255,255,.1)'}} };
+}
+
+function _leg(data) {
+  return { data, textStyle:{color:'#94a3b8',fontSize:9,fontFamily:_MONO}, top:2, right:6 };
+}
+
+function lineSeries(color) {
+  return { smooth:false, symbol:'circle', symbolSize:4,
+    lineStyle:{color,width:1.8}, itemStyle:{color} };
+}
+
+function lineSeries2(color) {
+  return { smooth:false, symbol:'circle', symbolSize:4,
+    lineStyle:{color,width:1.8,type:'dashed'}, itemStyle:{color} };
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MATH HELPERS
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function _computeHistMult(data, candles, sharesMM) {
+  if (!candles?.dates?.length || !sharesMM || !data.length) {
+    return data.map(d => ({ year:d.year, hist_mcap:null, ps:null, pfcf:null, pe:null }));
+  }
+  const cTimes = candles.dates.map(d => new Date(d).getTime());
+  return data.map(d => {
+    const fyEnd = new Date(d.year, 11, 31).getTime();
+    let best = 0, bestDiff = Infinity;
+    cTimes.forEach((t, i) => { const diff = Math.abs(t - fyEnd); if (diff < bestDiff) { bestDiff = diff; best = i; } });
+    const price = candles.closes[best];
+    const histMcap = price * sharesMM * 1e6;
+    return {
+      year: d.year, hist_mcap: histMcap,
+      ps:   d.revenue    && d.revenue    > 0 ? histMcap / (d.revenue    * 1e6) : null,
+      pfcf: d.fcf        && d.fcf        > 0 ? histMcap / (d.fcf        * 1e6) : null,
+      pe:   d.net_income && d.net_income > 0 ? histMcap / (d.net_income * 1e6) : null,
+    };
+  });
+}
+
+function _histAvg(data, mcapUSD, col) {
   if (!mcapUSD || !data.length) return null;
   const vals = data.slice(-5).map(d => {
     const v = d[col];
     if (!v || v <= 0) return null;
     return mcapUSD / (v * 1e6);
   }).filter(v => v != null && isFinite(v));
-  if (!vals.length) return null;
-  return vals.reduce((a, b) => a + b, 0) / vals.length;
+  return vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : null;
 }
 
-function _afComputeHistMult(data, candles, sharesMM) {
-  if (!candles?.dates?.length || !sharesMM || !data.length) {
-    return data.map(d => ({ year: d.year, hist_mcap: null, ps: null, pfcf: null, pe: null }));
-  }
-  const cTimes = candles.dates.map(d => new Date(d).getTime());
-  return data.map(d => {
-    const fyEnd = new Date(d.year, 11, 31).getTime();
-    let best = 0, bestDiff = Infinity;
-    cTimes.forEach((t, i) => {
-      const diff = Math.abs(t - fyEnd);
-      if (diff < bestDiff) { bestDiff = diff; best = i; }
-    });
-    const price     = candles.closes[best];
-    const histMcap  = price * sharesMM * 1e6;
-    return {
-      year:       d.year,
-      hist_mcap:  histMcap,
-      ps:    d.revenue   && d.revenue   > 0 ? histMcap / (d.revenue   * 1e6) : null,
-      pfcf:  d.fcf       && d.fcf       > 0 ? histMcap / (d.fcf       * 1e6) : null,
-      pe:    d.net_income && d.net_income > 0 ? histMcap / (d.net_income * 1e6) : null,
-    };
-  });
+function _yoy(curr, prev) {
+  if (curr == null || prev == null || prev === 0) return null;
+  return ((curr - prev) / Math.abs(prev) * 100);
 }
 
-function _afNoData(msg) {
+
+/* ══════════════════════════════════════════════════════════════════════════
+   FORMAT HELPERS
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function _fmtB(usdRaw) {
+  if (usdRaw == null) return '—';
+  const abs = Math.abs(usdRaw), sign = usdRaw < 0 ? '-' : '';
+  if (abs >= 1e12) return `${sign}$${(abs/1e12).toFixed(1)}T`;
+  if (abs >= 1e9)  return `${sign}$${(abs/1e9).toFixed(1)}B`;
+  if (abs >= 1e6)  return `${sign}$${(abs/1e6).toFixed(1)}M`;
+  if (abs >= 1e3)  return `${sign}$${(abs/1e3).toFixed(1)}K`;
+  return `${sign}$${abs.toFixed(0)}`;
+}
+
+function _fmtM(v) { return _fmtB(v != null ? v * 1e6 : null); }
+
+function _fmtPct(v) {
+  if (v == null) return '<span style="color:#334155">—</span>';
+  const c = v > 0 ? _GR : v < 0 ? _RE : '#94a3b8';
+  return `<span style="color:${c};font-weight:600">${v>=0?'+':''}${v.toFixed(1)}%</span>`;
+}
+
+function _fmtPct1(v) {
+  if (v == null) return '<span style="color:#334155">—</span>';
+  const c = v > 0 ? _GR : v < 0 ? _RE : '#94a3b8';
+  return `<span style="color:${c}">${v.toFixed(1)}%</span>`;
+}
+
+function _margin(num, den) {
+  if (num == null || den == null || den === 0) return '';
+  return `Margen ${(num / den * 100).toFixed(1)}%`;
+}
+
+function _rgba(hex, alpha) {
+  const h = hex.replace('#','');
+  return `rgba(${parseInt(h.slice(0,2),16)},${parseInt(h.slice(2,4),16)},${parseInt(h.slice(4,6),16)},${alpha.toFixed(2)})`;
+}
+
+function _op(i, n, min = 0.25) {
+  if (n <= 1) return 1;
+  return min + (1 - min) * i / (n - 1);
+}
+
+function _afEmpty(msg) {
   return `<div class="bt2-panel" style="padding:24px;text-align:center">
-    <div style="font-family:${MONO};color:var(--bt2-sub);font-size:.80rem">${msg}</div>
+    <div style="font-family:${_MONO};color:#334155;font-size:.78rem">${msg}</div>
   </div>`;
 }
 
-function _afBaseOption(xData) {
-  return {
-    grid: { left: 12, right: 20, top: 28, bottom: 24, containLabel: true },
-    xAxis: [{
-      type: 'category', data: xData, boundaryGap: true,
-      axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9.5 },
-      axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } }, splitLine: { show: false },
-    }],
-    backgroundColor: 'transparent',
-  };
+function _afSetPillActive(tickers, active) {
+  tickers.forEach(tk => {
+    const b = document.getElementById(`af-p-${tk}`);
+    if (!b) return;
+    const isA = tk === active;
+    b.style.background    = isA ? _GD : 'rgba(212,175,55,.08)';
+    b.style.borderColor   = isA ? _GB : 'rgba(212,175,55,.20)';
+    b.style.color         = isA ? _G  : '#94a3b8';
+  });
 }
 
-function _afTooltip() {
-  return {
-    trigger: 'axis',
-    backgroundColor: '#0d1424',
-    borderColor: 'rgba(255,255,255,.12)',
-    borderWidth: 1,
-    padding: [10, 14],
-    textStyle: { fontFamily: MONO, fontSize: 11, color: '#f1f5f9' },
-    axisPointer: { lineStyle: { color: 'rgba(255,255,255,.12)' } },
-  };
-}
-
-/**
- * Inicializa un gráfico ECharts en el elemento con el ID dado.
- * Si hasData es false, muestra emptyMsg como texto en lugar del chart.
- * Patrón síncrono idéntico al de FCI/ONs que funciona correctamente.
- */
-function _afChartInit(domId, configureFn, { hasData = true, emptyMsg = 'Sin datos disponibles' } = {}) {
-  const el = document.getElementById(domId);
-  if (!el) return;
-
-  // Limpiar instancia anterior si existe (cambio de tab)
-  const existing = echarts.getInstanceByDom(el);
-  if (existing) existing.dispose();
-
-  if (!hasData) {
-    el.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;
-      height:100%;font-family:${MONO};color:#475569;font-size:.75rem;
-      padding:16px;text-align:center">${emptyMsg}</div>`;
-    return;
+/* ── KPI card con borde superior de color ────────────────────────────────── */
+function _kpi(label, value, sub, badge, color, negVal = false) {
+  let badgeHtml = '';
+  if (badge != null) {
+    const col  = negVal ? _RE : (badge >= 0 ? _GR : _RE);
+    const bg   = negVal ? 'rgba(239,68,68,.10)' : (badge >= 0 ? 'rgba(34,197,94,.10)' : 'rgba(239,68,68,.10)');
+    const arr  = badge >= 0 ? '▲' : '▼';
+    const d    = Math.abs(badge) >= 100 ? badge.toFixed(0) : badge.toFixed(1);
+    badgeHtml  = `<span style="background:${bg};color:${col};border:1px solid ${col}33;
+      border-radius:3px;padding:1px 5px;font-size:.62rem;font-weight:700;
+      margin-left:4px;white-space:nowrap;font-family:${_MONO}">${arr} ${badge>=0?'+':''}${d}%</span>`;
   }
+  const vlen  = String(value).length;
+  const vfont = vlen > 9 ? '.95rem' : vlen > 7 ? '1.1rem' : '1.25rem';
 
-  const chart = echarts.init(el, 'dcf');
-  try {
-    configureFn(chart);
-  } catch (e) {
-    console.warn(`[AF] chart ${domId} error:`, e);
-    el.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;
-      height:100%;font-family:${MONO};color:#475569;font-size:.75rem;padding:16px">
-      Error al renderizar el gráfico</div>`;
-    return;
-  }
-  chart.resize();
-  new ResizeObserver(() => { try { chart.resize(); } catch (_) {} }).observe(el);
+  return `<div style="flex:1;min-width:110px;max-width:200px;
+    background:linear-gradient(145deg,#0d1424,#111d35);
+    border:1px solid rgba(148,163,184,.09);border-top:2px solid ${color};
+    border-radius:9px;padding:11px 13px;overflow:hidden">
+    <div style="font-size:.57rem;font-weight:700;letter-spacing:.10em;text-transform:uppercase;
+      color:#334155;margin-bottom:4px;font-family:${_MONO};white-space:nowrap">${label}</div>
+    <div style="font-size:${vfont};font-weight:700;color:#f1f5f9;line-height:1.1;
+      white-space:nowrap;font-family:${_MONO}">${value}</div>
+    <div style="margin-top:4px;font-size:.65rem;color:#64748b;font-family:${_MONO};
+      display:flex;align-items:center;flex-wrap:wrap;gap:3px">
+      <span>${sub||''}</span>${badgeHtml}
+    </div>
+  </div>`;
 }

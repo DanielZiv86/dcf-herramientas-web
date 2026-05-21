@@ -17,9 +17,16 @@ async def get_tickers(dcf_session: Optional[str] = Cookie(default=None)):
 
 @router.get("/config")
 async def get_config(dcf_session: Optional[str] = Cookie(default=None)):
-    """Devuelve configuración curada: tickers, nombres, sectores, descripciones y tags."""
     require_auth(dcf_session)
     return svc.get_config()
+
+
+@router.get("/compare")
+async def get_compare(dcf_session: Optional[str] = Cookie(default=None)):
+    """Resumen de todos los tickers curados para la tab Comparar.
+    Lee desde los JSONs estáticos pre-generados — una sola llamada desde el frontend."""
+    require_auth(dcf_session)
+    return svc.get_compare_summary()
 
 
 @router.get("/perfil")

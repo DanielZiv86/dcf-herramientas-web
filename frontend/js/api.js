@@ -92,6 +92,7 @@ const api = {
   fundamental: {
     tickers:     () => apiFetch('/fundamental/tickers'),
     config:      () => apiFetch('/fundamental/config'),
+    compare:     () => apiFetch('/fundamental/compare'),
     perfil:      (ticker) => apiFetch(`/fundamental/perfil?ticker=${ticker}`),
     financieros: (ticker) => apiFetch(`/fundamental/financieros?ticker=${ticker}`),
     candles:     (ticker, resolution = 'W') => apiFetch(`/fundamental/candles?ticker=${ticker}&resolution=${resolution}`),
