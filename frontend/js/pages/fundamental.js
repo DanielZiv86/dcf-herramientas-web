@@ -811,58 +811,114 @@ function _tabFinanciera(container, ticker, data) {
 
 function _tabValuacion(container, ticker, data, metrics, profile, candles) {
   const last    = data.length ? data[data.length - 1] : null;
-  const mcapM   = profile.market_cap;   // en millones
-  const shares  = profile.shares;       // en millones
+  const mcapM   = profile.market_cap;   // millones USD
+  const shares  = profile.shares;       // millones de acciones
   const mcapUSD = mcapM ? mcapM * 1e6 : null;
-  const netCash = last?.net_cash;
-  const evUSD   = mcapUSD != null && netCash != null ? mcapUSD - (netCash * 1e6) : mcapUSD;
+  const netCash = last?.net_cash;       // millones
+  const evUSD   = (mcapUSD != null && netCash != null)
+                    ? mcapUSD - (netCash * 1e6)
+                    : mcapUSD;
 
-  // Multiples
-  const pe    = metrics.pe_ttm ?? metrics.pe_forward;
-  const ps    = metrics.ps_ttm;
-  const pb    = metrics.pb_annual;
-  const pfcf  = (mcapM && metrics.fcf_ttm_m && metrics.fcf_ttm_m > 0)
-                  ? (mcapM / metrics.fcf_ttm_m) : null;
-  const lastRev = last?.revenue;
-  const evSales = (evUSD && lastRev && lastRev > 0) ? (evUSD / (lastRev * 1e6)) : null;
+  // Múltiplos desde metrics (yfinance)
+  const pe      = metrics.pe_ttm ?? metrics.pe_forward;
+  const ps      = metrics.ps_ttm;
+  const pb      = metrics.pb_annual;
+  const evEbitda = metrics.ev_ebitda_ttm;   // puede ser negativo (CRWD tiene EBITDA < 0)
+  const evSalesM = metrics.ev_sales_ttm;
+  const pfcf    = (mcapM && metrics.fcf_ttm_m && metrics.fcf_ttm_m > 0)
+                    ? (mcapM / metrics.fcf_ttm_m) : null;
 
-  const cards = [
-    ['Market Cap', mcapUSD != null ? _afFmtB(mcapUSD) : '—', '—', null, false],
-    ['EV',         evUSD   != null ? _afFmtB(evUSD)   : '—', '—', null, false],
-    ['P/E TTM',    pe    != null ? `${pe.toFixed(1)}x`    : '—', '—', null, false],
-    ['P/FCF',      pfcf  != null ? `${pfcf.toFixed(1)}x`  : '—', '—', null, false],
-    ['P/S TTM',    ps    != null ? `${ps.toFixed(1)}x`    : '—', '—', null, false],
-    ['EV/Sales',   evSales != null ? `${evSales.toFixed(1)}x` : '—', '—', null, false],
+  // Calcular EV/Sales desde datos propios si no viene de metrics
+  const lastRev  = last?.revenue;
+  const evSales  = evSalesM ?? ((evUSD && lastRev && lastRev > 0) ? evUSD / (lastRev * 1e6) : null);
+
+  // Price target y upside (calculados en backend desde yfinance consensus)
+  const targetPrice = metrics.target_price;
+  const upside      = metrics.upside;
+
+  const _multFmt = v => v != null ? `${Number(v).toFixed(1)}x` : '—';
+  const _pctFmt  = v => v != null ? `${v >= 0 ? '+' : ''}${Number(v).toFixed(1)}%` : '—';
+
+  // EV/EBITDA: si es muy negativo (empresa sin EBITDA positivo), mostrar "N/A"
+  const evEbitdaStr = evEbitda != null
+    ? (Math.abs(evEbitda) > 999 ? 'N/A¹' : `${Number(evEbitda).toFixed(1)}x`)
+    : '—';
+
+  const kpiCards = [
+    ['Market Cap', mcapUSD != null ? _afFmtB(mcapUSD) : '—',   '—', null, false],
+    ['EV',         evUSD   != null ? _afFmtB(evUSD)   : '—',   '—', null, false],
+    ['P/E TTM',    _multFmt(pe),          pe != null ? 'trailing' : '—',  null, false],
+    ['P/FCF',      _multFmt(pfcf),        pfcf != null ? 'trailing' : '—', null, false],
+    ['P/S TTM',    _multFmt(ps),          '—', null, false],
+    ['EV/EBITDA',  evEbitdaStr,           '—', null, false],
   ];
 
-  // Promedio histórico para P/E y P/S (espejo de Streamlit _hist_avg_from_df)
+  // Si hay price target, agregar cards
+  const targetCards = (targetPrice != null) ? `
+    <div class="bt2-panel" style="padding:14px 18px;margin-bottom:14px">
+      <div style="font-size:.60rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+        color:#475569;margin-bottom:10px;font-family:${MONO}">CONSENSO DE ANALISTAS</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:130px">
+          <div style="font-size:.60rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+            color:#475569;margin-bottom:4px;font-family:${MONO}">PRECIO TARGET</div>
+          <div style="font-size:1.3rem;font-weight:700;color:${_AF_GOLD};font-family:${MONO}">
+            $${Number(targetPrice).toFixed(2)}
+          </div>
+        </div>
+        <div style="flex:1;min-width:130px">
+          <div style="font-size:.60rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+            color:#475569;margin-bottom:4px;font-family:${MONO}">UPSIDE POTENCIAL</div>
+          <div style="font-size:1.3rem;font-weight:700;
+            color:${upside != null ? (upside >= 0 ? '#22c55e' : '#ef4444') : '#94a3b8'};
+            font-family:${MONO}">
+            ${upside != null ? _pctFmt(upside) : '—'}
+          </div>
+        </div>
+        ${metrics.recommendation ? `
+        <div style="flex:1;min-width:130px">
+          <div style="font-size:.60rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+            color:#475569;margin-bottom:4px;font-family:${MONO}">RECOMENDACIÓN</div>
+          <div style="font-size:.95rem;font-weight:700;color:#f1f5f9;text-transform:uppercase;
+            font-family:${MONO}">${metrics.recommendation.replace(/_/g, ' ')}
+            ${metrics.num_analysts ? `<span style="color:#475569;font-size:.68rem;font-weight:400">
+              (${metrics.num_analysts} analistas)</span>` : ''}
+          </div>
+        </div>` : ''}
+      </div>
+    </div>` : '';
+
+  // Promedio histórico para P/E y P/S
   const histPeAvg  = _afHistAvg(data, mcapUSD, 'net_income');
   const histPsAvg  = _afHistAvg(data, mcapUSD, 'revenue');
 
-  // Cards múltiplos vs histórico
   const multCards = [
-    { label: 'P/E',     curr: pe,     histAvg: histPeAvg },
-    { label: 'P/S',     curr: ps,     histAvg: histPsAvg },
-    { label: 'P/B',     curr: pb,     histAvg: null },
-    { label: 'P/FCF',   curr: pfcf,   histAvg: null },
-    { label: 'EV/Sales',curr: evSales,histAvg: null },
+    { label: 'P/E',      curr: pe,     histAvg: histPeAvg },
+    { label: 'P/S',      curr: ps,     histAvg: histPsAvg },
+    { label: 'P/B',      curr: pb,     histAvg: null },
+    { label: 'P/FCF',    curr: pfcf,   histAvg: null },
+    { label: 'EV/Sales', curr: typeof evSales === 'number' ? evSales : null, histAvg: null },
   ];
 
+  const hasCandles = candles?.status === 'ok' && candles?.dates?.length > 0;
+
   container.innerHTML = `
-    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
-      ${cards.map((c, i) => _afKpiCard(c[0], c[1], c[2], c[3], _AF_VAL_COLORS[i % _AF_VAL_COLORS.length], c[4])).join('')}
+    <!-- KPI cards superiores -->
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">
+      ${kpiCards.map((c, i) => _afKpiCard(c[0], c[1], c[2], c[3],
+          _AF_VAL_COLORS[i % _AF_VAL_COLORS.length], c[4])).join('')}
     </div>
+
+    ${targetCards}
 
     <!-- Múltiplos vs histórico -->
     <div style="font-size:.60rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-      color:#475569;margin-bottom:8px;font-family:${MONO}">
-      MÚLTIPLOS VS PROMEDIO HISTÓRICO
-    </div>
+      color:#475569;margin-bottom:8px;font-family:${MONO}">MÚLTIPLOS VS PROMEDIO HISTÓRICO</div>
     <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
       ${multCards.map(m => _afMultCard(m.label, m.curr, m.histAvg)).join('')}
     </div>
 
-    <!-- Gráficos -->
+    <!-- Gráficos 2×2 -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="bt2-panel" style="padding:12px">
         <div class="bt2-panel-hdr"><span class="bt2-panel-title">P/E HISTÓRICO</span></div>
@@ -877,104 +933,113 @@ function _tabValuacion(container, ticker, data, metrics, profile, candles) {
         <div id="af-chart-mcap" style="height:300px"></div>
       </div>
       <div class="bt2-panel" style="padding:12px">
-        <div class="bt2-panel-hdr"><span class="bt2-panel-title">PRECIO HISTÓRICO (SEMANAL)</span></div>
+        <div class="bt2-panel-hdr">
+          <span class="bt2-panel-title">PRECIO HISTÓRICO (SEMANAL)</span>
+          ${hasCandles ? `<span class="bt2-panel-sub">${candles.dates.at(-1)?.slice(0,10)} — ${candles.closes.at(-1)?.toFixed(2)} USD</span>` : ''}
+        </div>
         <div id="af-chart-precio" style="height:300px"></div>
       </div>
-    </div>`;
+    </div>
+    ${evEbitdaStr === 'N/A¹' ? `<div style="font-family:${MONO};font-size:.65rem;color:#475569;margin-top:8px">
+      ¹ EV/EBITDA no aplica cuando el EBITDA estimado es negativo (empresa en fase de crecimiento/pérdida operativa).
+    </div>` : ''}`;
 
-  const years = data.map(d => `FY${String(d.year).slice(2)}`);
-  const n     = data.length;
-
-  // Múltiplos históricos reconstruidos via candles × shares (espejo Streamlit compute_hist_multiples)
+  const years    = data.map(d => `FY${String(d.year).slice(2)}`);
+  const n        = data.length;
   const histMult = _afComputeHistMult(data, candles, shares);
 
-  // Chart P/E histórico
+  // P/E histórico
+  const peHist    = histMult.map(h => (h.pe && h.pe > 0 && h.pe < 500) ? h.pe : null);
+  const hasHistPe = peHist.some(v => v != null);
   _afChartInit('af-chart-pe', chart => {
-    const peHist = histMult.map(h => h.pe);
-    const hasHist = peHist.some(v => v != null && v < 300);
     chart.setOption({
       ..._afBaseOption(years),
-      yAxis: [{ type: 'value', axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9, formatter: v => `${v.toFixed(0)}x` },
+      yAxis: [{ type: 'value',
+        axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9, formatter: v => `${v.toFixed(0)}x` },
         splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
         axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } }],
-      series: hasHist ? [{ name: 'P/E', type: 'line', data: peHist.map(v => v && v < 300 ? v : null),
-        smooth: false, symbol: 'circle', symbolSize: 5,
-        lineStyle: { color: '#22d3ee', width: 2.2 }, itemStyle: { color: '#22d3ee' } }]
-        : pe ? [{ name: 'P/E TTM', type: 'scatter', data: [[years.at(-1), pe]],
-            symbolSize: 10, itemStyle: { color: '#22d3ee' } }] : [],
+      series: hasHistPe
+        ? [{ name: 'P/E', type: 'line', data: peHist, smooth: false, symbol: 'circle', symbolSize: 5,
+             lineStyle: { color: '#22d3ee', width: 2.2 }, itemStyle: { color: '#22d3ee' } }]
+        : (pe && pe > 0 && pe < 500)
+          ? [{ name: 'P/E TTM', type: 'scatter', data: [[years.at(-1), pe]],
+               symbolSize: 10, itemStyle: { color: '#22d3ee' } }]
+          : [],
       tooltip: { ..._afTooltip(), valueFormatter: v => v != null ? `${Number(v).toFixed(1)}x` : '—' },
     });
-  });
+  }, { hasData: hasHistPe || (pe != null && pe > 0 && pe < 500),
+       emptyMsg: 'P/E no disponible (empresa no rentable o múltiplo extremo)' });
 
-  // Chart P/S y P/FCF histórico
+  // P/S y P/FCF histórico
+  const psHist   = histMult.map(h => (h.ps   && h.ps   < 500)  ? h.ps   : null);
+  const pfcfHist = histMult.map(h => (h.pfcf && h.pfcf < 1000) ? h.pfcf : null);
+  const hasPsData = psHist.some(v => v != null) || pfcfHist.some(v => v != null);
   _afChartInit('af-chart-ps-pfcf', chart => {
-    const psHist   = histMult.map(h => h.ps && h.ps < 500 ? h.ps : null);
-    const pfcfHist = histMult.map(h => h.pfcf && h.pfcf < 1000 ? h.pfcf : null);
     chart.setOption({
       ..._afBaseOption(years),
-      yAxis: [{ type: 'value', axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9, formatter: v => `${v.toFixed(0)}x` },
+      yAxis: [{ type: 'value',
+        axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9, formatter: v => `${v.toFixed(0)}x` },
         splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
         axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } }],
       legend: { data: ['P/S', 'P/FCF'], textStyle: { color: '#94a3b8', fontSize: 9, fontFamily: MONO }, top: 0, right: 8 },
       series: [
-        { name: 'P/S', type: 'line', data: psHist, smooth: false, symbol: 'circle', symbolSize: 5,
+        { name: 'P/S',   type: 'line', data: psHist,   smooth: false, symbol: 'circle', symbolSize: 5,
           lineStyle: { color: '#22d3ee', width: 2 }, itemStyle: { color: '#22d3ee' } },
         { name: 'P/FCF', type: 'line', data: pfcfHist, smooth: false, symbol: 'circle', symbolSize: 5,
           lineStyle: { color: '#a78bfa', width: 2, type: 'dashed' }, itemStyle: { color: '#a78bfa' } },
       ],
       tooltip: { ..._afTooltip(), valueFormatter: v => v != null ? `${Number(v).toFixed(1)}x` : '—' },
     });
-  });
+  }, { hasData: hasPsData, emptyMsg: 'Sin histórico de P/S o P/FCF disponible' });
 
-  // Chart Market Cap histórico
+  // Market Cap histórico
+  const mcapHist    = histMult.map(h => h.hist_mcap ? h.hist_mcap / 1e9 : null);
+  const hasMcapData = mcapHist.some(v => v != null);
   _afChartInit('af-chart-mcap', chart => {
-    const mcapHist = histMult.map(h => h.hist_mcap ? h.hist_mcap / 1e9 : null);
     chart.setOption({
       ..._afBaseOption(years),
-      yAxis: [{ type: 'value', axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9, formatter: v => `$${v.toFixed(0)}B` },
+      yAxis: [{ type: 'value',
+        axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9, formatter: v => `$${v.toFixed(0)}B` },
         splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
         axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } }],
-      series: [{ name: 'Market Cap', type: 'bar', data: mcapHist.map((v, i) => ({
-          value: v, itemStyle: { color: _afRgba('#22d3ee', _afOpacity(i, n)) } })) }],
+      series: [{ name: 'Market Cap', type: 'bar',
+        data: mcapHist.map((v, i) => ({ value: v, itemStyle: { color: _afRgba('#22d3ee', _afOpacity(i, n)) } })) }],
       tooltip: { ..._afTooltip(), valueFormatter: v => v != null ? `$${Number(v).toFixed(1)}B` : '—' },
     });
-  });
+  }, { hasData: hasMcapData || mcapUSD != null,
+       emptyMsg: 'Sin datos de capitalización histórica' });
 
-  // Chart precio histórico semanal
+  // Precio histórico semanal
   _afChartInit('af-chart-precio', chart => {
-    if (!candles || !candles.dates || !candles.closes || candles.dates.length === 0) {
-      chart.setOption({ graphic: [{ type: 'text', left: 'center', top: 'middle',
-        style: { text: 'Sin datos de precio disponibles', fill: '#475569', fontSize: 13, fontFamily: MONO } }],
-        backgroundColor: 'transparent' });
-      return;
-    }
     chart.setOption({
-      grid: { left: 12, right: 12, top: 12, bottom: 24, containLabel: true },
-      xAxis: { type: 'category', data: candles.dates,
+      grid: { left: 12, right: 12, top: 8, bottom: 24, containLabel: true },
+      xAxis: { type: 'category', data: candles.dates, boundaryGap: false,
         axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 8.5,
-          formatter: d => d.slice(0, 7) },
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } }, splitLine: { show: false },
-        // Show only every N-th label to avoid clutter
-        interval: Math.floor(candles.dates.length / 8) },
-      yAxis: { type: 'value', axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9, formatter: v => `$${v.toFixed(0)}` },
+          formatter: d => d.slice(0, 7),
+          interval: Math.max(0, Math.floor(candles.dates.length / 8) - 1) },
+        axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } }, splitLine: { show: false } },
+      yAxis: { type: 'value',
+        axisLabel: { color: '#475569', fontFamily: MONO, fontSize: 9,
+          formatter: v => `$${v >= 1000 ? (v/1000).toFixed(0)+'K' : v.toFixed(0)}` },
         splitLine: { lineStyle: { color: 'rgba(255,255,255,.05)', type: 'dashed' } },
         axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } } },
       series: [{ name: ticker, type: 'line', data: candles.closes,
         smooth: false, symbol: 'none',
         lineStyle: { color: '#a78bfa', width: 1.5 },
-        areaStyle: { color: 'rgba(167,139,250,.08)' } }],
-      tooltip: { trigger: 'axis', backgroundColor: '#0d1424', borderColor: 'rgba(255,255,255,.12)', borderWidth: 1,
-        padding: [8, 12], textStyle: { fontFamily: MONO, fontSize: 11, color: '#f1f5f9' },
+        areaStyle: { color: 'rgba(167,139,250,.07)' } }],
+      tooltip: { trigger: 'axis', backgroundColor: '#0d1424',
+        borderColor: 'rgba(255,255,255,.12)', borderWidth: 1, padding: [8, 12],
+        textStyle: { fontFamily: MONO, fontSize: 11, color: '#f1f5f9' },
         formatter: params => {
           const p = params[0];
           return `<div style="font-family:${MONO};font-size:10px">
             <div style="color:#94a3b8;margin-bottom:4px">${p.axisValue}</div>
-            <div style="font-weight:700">$${Number(p.value).toFixed(2)}</div>
+            <div style="font-weight:700;color:#a78bfa">$${Number(p.value).toFixed(2)}</div>
           </div>`;
         } },
       backgroundColor: 'transparent',
     });
-  });
+  }, { hasData: hasCandles, emptyMsg: 'Sin datos de precio histórico disponibles para este ticker' });
 }
 
 
@@ -1131,17 +1196,37 @@ function _afTooltip() {
   };
 }
 
-function _afChartInit(domId, configureFn) {
+/**
+ * Inicializa un gráfico ECharts en el elemento con el ID dado.
+ * Si hasData es false, muestra emptyMsg como texto en lugar del chart.
+ * Usa requestAnimationFrame para garantizar que el layout CSS esté listo.
+ */
+function _afChartInit(domId, configureFn, { hasData = true, emptyMsg = 'Sin datos disponibles' } = {}) {
   const el = document.getElementById(domId);
   if (!el) return;
+
   const existing = echarts.getInstanceByDom(el);
   if (existing) existing.dispose();
-  const chart = echarts.init(el, 'dcf');
-  try {
-    configureFn(chart);
-  } catch (e) {
-    console.warn(`[AF] chart ${domId} error:`, e);
+
+  if (!hasData) {
+    el.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;
+      height:100%;font-family:${MONO};color:#475569;font-size:.75rem;
+      padding:16px;text-align:center">${emptyMsg}</div>`;
+    return;
   }
-  chart.resize();
-  new ResizeObserver(() => { try { chart.resize(); } catch (_) {} }).observe(el);
+
+  requestAnimationFrame(() => {
+    const chart = echarts.init(el, 'dcf');
+    try {
+      configureFn(chart);
+    } catch (e) {
+      console.warn(`[AF] chart ${domId} error:`, e);
+      el.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;
+        height:100%;font-family:${MONO};color:#475569;font-size:.75rem;padding:16px">
+        Error al renderizar el gráfico</div>`;
+      return;
+    }
+    chart.resize();
+    new ResizeObserver(() => { try { chart.resize(); } catch (_) {} }).observe(el);
+  });
 }

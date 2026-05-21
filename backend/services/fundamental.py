@@ -1,13 +1,20 @@
-"""Fundamental analysis — Finnhub API client (async).
+"""Fundamental analysis service.
 
-Datos: Finnhub /stock/profile2, /stock/quote, /stock/metric, /stock/financials-reported, /stock/candle.
-Métricas derivadas calculadas aquí: FCF, net_cash, EBITDA_est, márgenes, YoY, CAGR, D/E.
-Espejo de la lógica en fundamental/client.py + fundamental/calcs.py del proyecto Streamlit.
+Fuentes:
+- yfinance: financial statements (income, balance, cashflow) y price history — primario
+- Finnhub: profile, real-time quote, market metrics — suplementario
+- JSON estático: backend/data/fundamental/tickers/{TICKER}.json — más rápido que API
+
+Espejo de fundamental/client.py + fundamental/calcs.py del proyecto Streamlit.
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -20,8 +27,16 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 BASE_URL     = "https://finnhub.io/api/v1"
+STATIC_DIR   = Path(__file__).resolve().parents[1] / "data" / "fundamental" / "tickers"
 PARQUET_DIR  = Path(__file__).resolve().parents[1] / "data" / "fundamental"
-PARQUET_TTL  = 43200  # 12h en segundos
+STATIC_TTL   = 86400  # 24h — tiempo máximo antes de regenerar el JSON estático
+FINNHUB_TTL  = 43200  # 12h — cache de parquet Finnhub
+
+# Thread pool para yfinance (síncrono)
+_yf_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="yfinance")
+
+
+# ── Universo curado ───────────────────────────────────────────────────────────
 
 CURATED_TICKERS: list[str] = [
     "CRWD", "ANET", "O", "GLNG", "SNDK", "NBIS", "HIMS",
@@ -44,7 +59,6 @@ TICKER_INFO: dict[str, dict] = {
     "FISV": {"name": "Fiserv",            "sector": "Financial"},
 }
 
-# Descripción curada y tags por ticker (espejo de fundamental/config.py Streamlit)
 TICKER_CONFIG: dict[str, dict] = {
     "CRWD": {
         "description": "Líder global en ciberseguridad nativa en la nube. Plataforma Falcon con 28+ módulos unificados. Modelo 100% SaaS con NRR >120%, protegiendo endpoints, cloud e identidades en tiempo real con IA.",
@@ -100,102 +114,305 @@ TICKER_CONFIG: dict[str, dict] = {
     },
 }
 
-# ── XBRL concept mappings (orden = prioridad) ─────────────────────────────────
 
-_XBRL_PREFIXES = ("us-gaap_", "crwd_", "dei_", "srt_", "ifrs-full_", "us-gaap:", "crwd:")
+# ══════════════════════════════════════════════════════════════════════════════
+# JSON estático — cache en disco (no efímero en Render si se pre-genera)
+# ══════════════════════════════════════════════════════════════════════════════
 
-_XBRL_MAP: dict[str, list[str]] = {
-    "revenue": [
-        "RevenueFromContractWithCustomerExcludingAssessedTax",
-        "RevenueFromContractWithCustomerIncludingAssessedTax",
-        "Revenues", "Revenue", "SalesRevenueNet",
-    ],
-    "gross_profit": ["GrossProfit"],
-    "operating_income": ["OperatingIncomeLoss", "IncomeLossFromContinuingOperationsBeforeIncomeTaxes"],
-    "net_income": [
-        "NetIncomeLoss", "NetIncome", "ProfitLoss",
-        "NetIncomeLossAvailableToCommonStockholdersBasic",
-    ],
-    "da": [
-        "DepreciationDepletionAndAmortization", "DepreciationAndAmortization", "Depreciation",
-        "DepreciationAndAmortizationExcludingIntangibleAssetsAndDeferredContractAcquisitionCosts",
-    ],
-    "eps_diluted": ["EarningsPerShareDiluted", "EarningsPerShareBasic"],
-    "cfo": [
-        "NetCashProvidedByUsedInOperatingActivities",
-        "NetCashProvidedByOperatingActivities",
-    ],
-    "capex": [
-        "PaymentsToAcquirePropertyPlantAndEquipment",
-        "CapitalExpendituresIncurringObligation",
-        "PurchaseOfPropertyPlantAndEquipment",
-    ],
-    "cash": [
-        "CashAndCashEquivalentsAtCarryingValue",
-        "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
-        "CashAndCashEquivalents",
-    ],
-    "debt_lt": ["LongTermDebtNoncurrent", "LongTermDebt", "LongTermNotesPayable"],
-    "debt_st": ["DebtCurrent", "ShortTermBorrowings", "NotesPayableCurrent"],
-    "equity": [
-        "StockholdersEquity",
-        "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
-    ],
-    "total_assets": ["Assets"],
-}
+def _static_path(ticker: str) -> Path:
+    STATIC_DIR.mkdir(parents=True, exist_ok=True)
+    return STATIC_DIR / f"{ticker.upper()}.json"
 
 
-# ── XBRL helpers ──────────────────────────────────────────────────────────────
-
-def _strip_prefix(concept: str) -> str:
-    for p in _XBRL_PREFIXES:
-        if concept.lower().startswith(p.lower()):
-            return concept[len(p):]
-    if ":" in concept:
-        return concept.split(":", 1)[1]
-    return concept
+def _static_is_fresh(path: Path, ttl: int = STATIC_TTL) -> bool:
+    if not path.exists():
+        return False
+    return (time.time() - path.stat().st_mtime) < ttl
 
 
-def _extract_concepts(items: list) -> dict:
-    """Convierte lista [{concept, value}] en dict, indexando con y sin prefijo."""
-    d: dict = {}
-    for item in (items or []):
-        if not isinstance(item, dict):
-            continue
-        concept = item.get("concept", "")
-        value   = item.get("value")
-        if value is None:
-            continue
-        d[concept] = value
-        stripped = _strip_prefix(concept)
-        if stripped != concept:
-            d.setdefault(stripped, value)
-    return d
+def _static_load(ticker: str) -> Optional[dict]:
+    path = _static_path(ticker)
+    if not _static_is_fresh(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.warning("[fund] static load %s failed: %s", ticker, e)
+        return None
 
 
-def _pick(d: dict, concepts: list[str]) -> Optional[float]:
-    for c in concepts:
-        v = d.get(c)
-        if v is not None:
-            return v
-        stripped = _strip_prefix(c)
-        if stripped != c:
-            v = d.get(stripped)
-            if v is not None:
-                return v
-    return None
+def _static_save(ticker: str, data: dict) -> None:
+    try:
+        path = _static_path(ticker)
+        data["generated_at"] = datetime.utcnow().isoformat()
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, default=str, allow_nan=False)
+        logger.info("[fund] static JSON saved: %s", path.name)
+    except Exception as e:
+        logger.warning("[fund] static save %s failed: %s", ticker, e)
 
 
-# ── Derived metrics ───────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# yfinance — helpers síncronos (ejecutados en thread pool)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _yf_run(fn, *args):
+    """Ejecuta fn(*args) síncrono en el thread pool de yfinance."""
+    loop = asyncio.get_event_loop()
+    return loop.run_in_executor(_yf_pool, fn, *args)
+
+
+def _nan_to_none(v):
+    """Convierte NaN/inf → None para JSON serialization."""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+        return None if (f != f or abs(f) == float("inf")) else f
+    except Exception:
+        return None
+
+
+def _safe_float(v, divisor=1.0) -> Optional[float]:
+    """Convierte v a float dividido por divisor; NaN → None."""
+    v2 = _nan_to_none(v)
+    if v2 is None:
+        return None
+    return round(v2 / divisor, 4)
+
+
+# ── yfinance: financial statements ───────────────────────────────────────────
+
+def _financials_yfinance_sync(ticker: str) -> pd.DataFrame:
+    """
+    Construye DataFrame anual desde yfinance.
+    Equivalente a _financials_yfinance() en Streamlit's fundamental/client.py.
+    Columnas en MILLONES USD; capex positivo (monto de inversión).
+    """
+    try:
+        import yfinance as yf
+        tkr = yf.Ticker(ticker)
+
+        inc = tkr.income_stmt
+        bal = tkr.balance_sheet
+        cf  = tkr.cashflow
+
+        if inc is None or inc.empty:
+            logger.warning("[fund] yfinance income_stmt empty for %s", ticker)
+            return pd.DataFrame()
+
+        rows = []
+        for col in inc.columns:
+            try:
+                year = int(str(col)[:4])
+            except Exception:
+                continue
+            end_date = str(col)[:10]
+
+            def g(df, *names):
+                """Busca primera fila que coincide (case-insensitive, match parcial)."""
+                if df is None or df.empty:
+                    return None
+                idx_lower = {str(i).lower(): i for i in df.index}
+                for name in names:
+                    for k, orig in idx_lower.items():
+                        if name.lower() in k:
+                            try:
+                                v = df.loc[orig, col]
+                                return float(v) if pd.notna(v) else None
+                            except Exception:
+                                return None
+                return None
+
+            capex_raw = g(cf, "capital expenditure")
+            capex_mm  = abs(capex_raw) / 1e6 if capex_raw is not None else None
+
+            row = {
+                "year":             year,
+                "end_date":         end_date,
+                "revenue":          _safe_float(g(inc, "total revenue", "revenue"), 1e6),
+                "gross_profit":     _safe_float(g(inc, "gross profit"), 1e6),
+                "operating_income": _safe_float(g(inc, "operating income", "ebit"), 1e6),
+                "net_income":       _safe_float(g(inc, "net income"), 1e6),
+                "da":               _safe_float(
+                    g(inc, "depreciation & amortization", "reconciled depreciation",
+                      "depreciation amortization"), 1e6),
+                "eps_diluted":      _nan_to_none(g(inc, "diluted eps", "basic eps")),
+                "cfo":              _safe_float(g(cf, "operating cash flow"), 1e6),
+                "capex":            capex_mm,
+                "cash":             _safe_float(
+                    g(bal, "cash and cash equivalents",
+                      "cash cash equivalents and short term investments"), 1e6),
+                "debt_lt":          _safe_float(g(bal, "long term debt"), 1e6),
+                "debt_st":          _safe_float(g(bal, "current debt", "current long term debt"), 1e6),
+                "equity":           _safe_float(
+                    g(bal, "stockholders equity", "total equity gross minority interest",
+                      "total equity"), 1e6),
+                "total_assets":     _safe_float(g(bal, "total assets"), 1e6),
+            }
+
+            has_data = any(row[k] is not None for k in ("revenue", "net_income", "cfo", "total_assets"))
+            if not has_data:
+                continue
+
+            rows.append(row)
+
+        if not rows:
+            logger.warning("[fund] yfinance: no rows for %s", ticker)
+            return pd.DataFrame()
+
+        df = pd.DataFrame(rows).sort_values("year").drop_duplicates("year").reset_index(drop=True)
+        # Solo últimos 5 años con revenue real
+        if "revenue" in df.columns:
+            df = df[df["revenue"].notna() & (df["revenue"].abs() > 0.001)]
+        df = df.tail(5).reset_index(drop=True)
+
+        logger.info("[fund] yfinance financials %s: %d years", ticker, len(df))
+        return df
+
+    except Exception as e:
+        logger.warning("[fund] yfinance financials %s failed: %s", ticker, e)
+        return pd.DataFrame()
+
+
+# ── yfinance: price history (velas semanales) ─────────────────────────────────
+
+def _candles_yfinance_sync(ticker: str, years: int = 5) -> dict:
+    """Histórico de precios semanal via yfinance. Primary source para velas."""
+    try:
+        import yfinance as yf
+        df = yf.download(ticker, period=f"{years}y", interval="1wk",
+                         auto_adjust=True, progress=False, multi_level_index=False)
+        if df is None or df.empty:
+            return {"status": "no_data", "dates": [], "closes": []}
+
+        df = df.reset_index()
+        # Normalizar columnas
+        df.columns = [str(c).lower() for c in df.columns]
+        date_col  = next((c for c in df.columns if "date" in c), None)
+        close_col = next((c for c in df.columns if "close" in c), None)
+        if not date_col or not close_col:
+            return {"status": "no_data", "dates": [], "closes": []}
+
+        df = df[[date_col, close_col]].dropna()
+        dates  = [str(d)[:10] for d in df[date_col]]
+        closes = [round(float(v), 4) for v in df[close_col]]
+
+        logger.info("[fund] yfinance candles %s: %d weeks", ticker, len(dates))
+        return {"status": "ok", "dates": dates, "closes": closes}
+
+    except Exception as e:
+        logger.warning("[fund] yfinance candles %s failed: %s", ticker, e)
+        return {"status": "error", "dates": [], "closes": []}
+
+
+# ── yfinance: profile enrichment ──────────────────────────────────────────────
+
+def _profile_yfinance_sync(ticker: str) -> dict:
+    """Datos de perfil desde yfinance.info (complemento a Finnhub)."""
+    try:
+        import yfinance as yf
+        info = yf.Ticker(ticker).info or {}
+        mcap = info.get("marketCap")
+        shares = info.get("sharesOutstanding")
+        dy_raw = info.get("dividendYield") or 0
+        # yfinance devuelve dividendYield como fracción (0.037 = 3.7%)
+        dy_pct = round(dy_raw * 100, 2) if 0 < dy_raw < 1 else (round(dy_raw, 2) if dy_raw > 0 else None)
+
+        return {
+            "name":         info.get("longName") or info.get("shortName") or ticker,
+            "sector":       info.get("sector") or info.get("industry", ""),
+            "industry":     info.get("industry", ""),
+            "exchange":     info.get("exchange") or info.get("fullExchangeName", ""),
+            "market_cap":   round(mcap / 1e6, 2) if mcap else None,  # millones
+            "shares":       round(shares / 1e6, 4) if shares else None,  # millones
+            "logo":         info.get("logo_url", ""),
+            "website":      info.get("website", ""),
+            "country":      info.get("country", "US"),
+            "currency":     info.get("currency", "USD"),
+            "ipo_date":     info.get("ipoExpectedDate") or "",
+            "employees":    info.get("fullTimeEmployees"),
+            "description":  info.get("longBusinessSummary", ""),
+            "dividend_yield": dy_pct,
+        }
+    except Exception as e:
+        logger.warning("[fund] yfinance profile %s failed: %s", ticker, e)
+        return {}
+
+
+# ── yfinance: metrics ─────────────────────────────────────────────────────────
+
+def _metrics_yfinance_sync(ticker: str) -> dict:
+    """Métricas fundamentales desde yfinance.info."""
+    try:
+        import yfinance as yf
+        info = yf.Ticker(ticker).info or {}
+
+        def pct(v):
+            """Convierte fracción yfinance a %; NaN → None."""
+            v2 = _nan_to_none(v)
+            if v2 is None:
+                return None
+            # yfinance margins/returns están en fracción (0.12 = 12%)
+            return round(v2 * 100, 2) if abs(v2) < 10 else round(v2, 2)
+
+        def val(v, divisor=1.0):
+            v2 = _nan_to_none(v)
+            return round(v2 / divisor, 4) if v2 is not None else None
+
+        price        = _nan_to_none(info.get("currentPrice") or info.get("regularMarketPrice"))
+        target_price = _nan_to_none(info.get("targetMeanPrice"))
+        upside       = None
+        if price and target_price and price > 0:
+            upside = round((target_price - price) / price * 100, 2)
+
+        return {
+            "pe_ttm":              val(info.get("trailingPE")),
+            "pe_forward":          val(info.get("forwardPE")),
+            "ps_ttm":              val(info.get("priceToSalesTrailing12Months")),
+            "pb_annual":           val(info.get("priceToBook")),
+            "ev_ebitda_ttm":       val(info.get("enterpriseToEbitda")),
+            "ev_sales_ttm":        val(info.get("enterpriseToRevenue")),
+            "beta":                val(info.get("beta")),
+            "week52_high":         val(info.get("fiftyTwoWeekHigh")),
+            "week52_low":          val(info.get("fiftyTwoWeekLow")),
+            "eps_ttm":             val(info.get("trailingEps")),
+            "eps_forward":         val(info.get("forwardEps")),
+            "roe_ttm":             pct(info.get("returnOnEquity")),
+            "roa_ttm":             pct(info.get("returnOnAssets")),
+            "roic_ttm":            None,  # yfinance no tiene ROIC directamente
+            "gross_margin_ttm":    pct(info.get("grossMargins")),
+            "ebitda_margin_ttm":   pct(info.get("ebitdaMargins")),
+            "net_margin_ttm":      pct(info.get("profitMargins")),
+            "operating_margin_ttm":pct(info.get("operatingMargins")),
+            "fcf_margin_ttm":      None,  # calculado desde financials
+            "revenue_ttm_m":       val(info.get("totalRevenue"), 1e6),   # millones
+            "ebitda_ttm_m":        val(info.get("ebitda"), 1e6),          # millones
+            "fcf_ttm_m":           val(info.get("freeCashflow"), 1e6),    # millones
+            "dividend_yield":      pct(info.get("dividendYield")),
+            "target_price":        target_price,
+            "upside":              upside,
+            "recommendation":      info.get("recommendationKey", ""),
+            "num_analysts":        info.get("numberOfAnalystOpinions"),
+            "enterprise_value_m":  val(info.get("enterpriseValue"), 1e6),  # millones
+        }
+    except Exception as e:
+        logger.warning("[fund] yfinance metrics %s failed: %s", ticker, e)
+        return {}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Derived metrics (espejo de calcs.py Streamlit)
+# ══════════════════════════════════════════════════════════════════════════════
 
 def _compute_derived(df: pd.DataFrame) -> list[dict]:
-    """Agrega métricas derivadas al DataFrame anual (espejo de calcs.py Streamlit)."""
     if df.empty:
         return []
 
     df = df.sort_values("year").reset_index(drop=True).copy()
 
-    # Total debt = LT + ST
+    # Total debt = LT + ST (ambos en millones)
     if "debt_lt" in df.columns and "debt_st" in df.columns:
         df["total_debt"] = df["debt_lt"].fillna(0) + df["debt_st"].fillna(0)
     elif "debt_lt" in df.columns:
@@ -203,13 +420,15 @@ def _compute_derived(df: pd.DataFrame) -> list[dict]:
     else:
         df["total_debt"] = np.nan
 
-    # FCF = CFO - |capex|  (capex viene positivo del XBRL parser)
+    # FCF = CFO - capex  (capex viene positivo)
     if "cfo" in df.columns and "capex" in df.columns:
         df["fcf"] = df["cfo"].fillna(0) - df["capex"].abs().fillna(0)
+    elif "cfo" in df.columns:
+        df["fcf"] = df["cfo"]
     else:
         df["fcf"] = np.nan
 
-    # Net cash (positivo = cash neto; negativo = net debt)
+    # Net cash = cash - total_debt (positivo = net cash; negativo = net debt)
     if "cash" in df.columns and "total_debt" in df.columns:
         df["net_cash"] = df["cash"].fillna(0) - df["total_debt"].fillna(0)
     else:
@@ -254,24 +473,30 @@ def _compute_derived(df: pd.DataFrame) -> list[dict]:
                 np.nan,
             )
 
-    # Rev CAGR 3Y — scalar aplicado como columna en la última fila
+    # Rev CAGR 3Y (scalar, solo en última fila)
     rev_cagr: Optional[float] = None
     if "revenue" in df.columns and len(df) >= 2:
         recent = df["revenue"].dropna()
         if len(recent) >= 2:
             n = min(len(recent) - 1, 3)
             try:
-                cagr = (recent.iloc[-1] / recent.iloc[0]) ** (1.0 / n) - 1.0
-                if np.isfinite(cagr):
-                    rev_cagr = round(float(cagr) * 100, 1)
+                first, last = float(recent.iloc[0]), float(recent.iloc[-1])
+                if first > 0 and last > 0:
+                    cagr = (last / first) ** (1.0 / n) - 1.0
+                    if np.isfinite(cagr):
+                        rev_cagr = round(cagr * 100, 1)
             except Exception:
                 pass
 
-    # Convertir a lista de dicts; reemplazar NaN con None
+    # Convertir a list[dict], NaN → None
     records = []
     for rec in df.to_dict(orient="records"):
-        clean = {k: (None if (v is not None and isinstance(v, float) and np.isnan(v)) else v)
-                 for k, v in rec.items()}
+        clean: dict = {}
+        for k, v in rec.items():
+            if isinstance(v, float) and (v != v or abs(v) == float("inf")):
+                clean[k] = None
+            else:
+                clean[k] = v
         records.append(clean)
 
     if records:
@@ -280,313 +505,276 @@ def _compute_derived(df: pd.DataFrame) -> list[dict]:
     return records
 
 
-# ── HTTP client ───────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Finnhub HTTP client (para profile y quote en tiempo real)
+# ══════════════════════════════════════════════════════════════════════════════
 
-def _client() -> httpx.AsyncClient:
+def _finnhub_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(
         base_url=BASE_URL,
-        timeout=15,
+        timeout=12,
         headers={"X-Finnhub-Token": settings.finnhub_token},
-        transport=httpx.AsyncHTTPTransport(retries=2),
+        transport=httpx.AsyncHTTPTransport(retries=1),
     )
 
 
-try:
-    import pyarrow  # noqa: F401
-    _HAS_PARQUET = True
-except ImportError:
-    _HAS_PARQUET = False
-
-
-def _parquet_path(ticker: str, kind: str) -> Path:
-    PARQUET_DIR.mkdir(parents=True, exist_ok=True)
-    return PARQUET_DIR / f"{ticker.upper()}_{kind}.parquet"
-
-
-def _is_fresh(path: Path) -> bool:
-    if not _HAS_PARQUET or not path.exists():
-        return False
-    return (time.time() - path.stat().st_mtime) < PARQUET_TTL
-
-
-async def _get(path: str, **params) -> Any:
-    async with _client() as c:
+async def _fh_get(path: str, **params) -> dict:
+    async with _finnhub_client() as c:
         r = await c.get(path, params={k: v for k, v in params.items() if v is not None})
         r.raise_for_status()
         return r.json()
 
 
-# ── Public API: config ────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Config
+# ══════════════════════════════════════════════════════════════════════════════
 
 def get_config() -> dict:
-    """Devuelve la configuración curada (descripciones, tags) de todos los tickers."""
-    return {
-        "tickers": CURATED_TICKERS,
-        "info":    TICKER_INFO,
-        "config":  TICKER_CONFIG,
-    }
+    return {"tickers": CURATED_TICKERS, "info": TICKER_INFO, "config": TICKER_CONFIG}
 
 
-# ── Profile ───────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Profile (Finnhub primario + yfinance enriquecimiento)
+# ══════════════════════════════════════════════════════════════════════════════
 
 async def get_profile(ticker: str) -> dict:
+    tkr = ticker.upper()
+
+    # Finnhub profile (logo, exchange, market cap en tiempo real)
+    fh_data: dict = {}
+    if settings.finnhub_token:
+        try:
+            fh_data = await _fh_get("/stock/profile2", symbol=tkr)
+        except Exception as e:
+            logger.warning("[fund] Finnhub profile %s: %s", tkr, e)
+
+    # yfinance profile como fuente complementaria
+    yf_data: dict = {}
     try:
-        data = await _get("/stock/profile2", symbol=ticker.upper())
-        return {
-            "ticker":     ticker.upper(),
-            "name":       data.get("name", TICKER_INFO.get(ticker.upper(), {}).get("name", ticker)),
-            "sector":     data.get("finnhubIndustry", TICKER_INFO.get(ticker.upper(), {}).get("sector", "")),
-            "exchange":   data.get("exchange", ""),
-            "market_cap": data.get("marketCapitalization"),   # en millones USD
-            "shares":     data.get("shareOutstanding"),       # en millones
-            "logo":       data.get("logo", ""),
-            "website":    data.get("weburl", ""),
-            "country":    data.get("country", "US"),
-            "currency":   data.get("currency", "USD"),
-            "ipo_date":   data.get("ipo", ""),
-            "employees":  data.get("employeeTotal"),
-        }
+        yf_data = await asyncio.get_event_loop().run_in_executor(
+            _yf_pool, _profile_yfinance_sync, tkr
+        )
     except Exception as e:
-        logger.warning("profile %s failed: %s", ticker, e)
-        info = TICKER_INFO.get(ticker.upper(), {})
-        return {"ticker": ticker.upper(), "name": info.get("name", ticker), "sector": info.get("sector", "")}
+        logger.warning("[fund] yfinance profile %s: %s", tkr, e)
+
+    curated_info = TICKER_INFO.get(tkr, {})
+    curated_cfg  = TICKER_CONFIG.get(tkr, {})
+
+    # Prioridad: Finnhub para datos en tiempo real, yfinance para descripción/empleados
+    return {
+        "ticker":       tkr,
+        "name":         fh_data.get("name") or yf_data.get("name") or curated_info.get("name", tkr),
+        "sector":       fh_data.get("finnhubIndustry") or yf_data.get("sector") or curated_info.get("sector", ""),
+        "industry":     yf_data.get("industry", ""),
+        "exchange":     fh_data.get("exchange") or yf_data.get("exchange", ""),
+        "market_cap":   fh_data.get("marketCapitalization") or yf_data.get("market_cap"),
+        "shares":       fh_data.get("shareOutstanding") or yf_data.get("shares"),
+        "logo":         fh_data.get("logo", "") or yf_data.get("logo", ""),
+        "website":      fh_data.get("weburl", "") or yf_data.get("website", ""),
+        "country":      fh_data.get("country", "US") or yf_data.get("country", "US"),
+        "currency":     fh_data.get("currency", "USD") or yf_data.get("currency", "USD"),
+        "ipo_date":     fh_data.get("ipo", "") or yf_data.get("ipo_date", ""),
+        "employees":    yf_data.get("employees") or fh_data.get("employeeTotal"),
+        "description":  curated_cfg.get("description") or yf_data.get("description", ""),
+        "dividend_yield": yf_data.get("dividend_yield"),
+    }
 
 
-# ── Quote ─────────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Quote (Finnhub primario + yfinance fallback)
+# ══════════════════════════════════════════════════════════════════════════════
 
 async def get_quote(ticker: str) -> dict:
+    tkr = ticker.upper()
+    if settings.finnhub_token:
+        try:
+            data = await _fh_get("/quote", symbol=tkr)
+            price = _nan_to_none(data.get("c"))
+            if price and price > 0:
+                prev    = _nan_to_none(data.get("pc")) or 0
+                change  = _nan_to_none(data.get("d")) or (price - prev)
+                pct     = _nan_to_none(data.get("dp")) or ((change / prev * 100) if prev else 0)
+                return {
+                    "price":      price,
+                    "change":     round(change, 2),
+                    "pct_change": round(pct, 2),
+                    "high":       _nan_to_none(data.get("h")),
+                    "low":        _nan_to_none(data.get("l")),
+                    "prev_close": _nan_to_none(data.get("pc")),
+                }
+        except Exception as e:
+            logger.warning("[fund] Finnhub quote %s: %s", tkr, e)
+
+    # yfinance fallback
     try:
-        data = await _get("/quote", symbol=ticker.upper())
-        current = data.get("c") or 0
-        prev    = data.get("pc") or 0
-        change  = data.get("d") or (current - prev)
-        pct     = data.get("dp") or ((change / prev * 100) if prev else 0)
-        return {
-            "price":      current,
-            "change":     round(change, 2),
-            "pct_change": round(pct, 2),
-            "high":       data.get("h"),
-            "low":        data.get("l"),
-            "open":       data.get("o"),
-            "prev_close": prev,
-        }
+        import yfinance as yf
+        info = await asyncio.get_event_loop().run_in_executor(
+            _yf_pool, lambda: yf.Ticker(tkr).fast_info
+        )
+        price = _nan_to_none(getattr(info, "last_price", None))
+        prev  = _nan_to_none(getattr(info, "previous_close", None)) or 0
+        if price:
+            change = round(price - prev, 2) if prev else 0
+            pct    = round(change / prev * 100, 2) if prev else 0
+            return {"price": price, "change": change, "pct_change": pct,
+                    "prev_close": prev}
     except Exception as e:
-        logger.warning("quote %s failed: %s", ticker, e)
-        return {}
+        logger.warning("[fund] yfinance quote %s: %s", tkr, e)
+
+    return {}
 
 
-# ── Metrics ───────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Metrics (yfinance primario — más completo que Finnhub free tier)
+# ══════════════════════════════════════════════════════════════════════════════
 
 async def get_metrics(ticker: str) -> dict:
+    tkr = ticker.upper()
     try:
-        data = await _get("/stock/metric", symbol=ticker.upper(), metric="all")
-        m = data.get("metric", {}) or {}
-
-        def _v(k):
-            v = m.get(k)
-            try:
-                return round(float(v), 4) if v is not None else None
-            except Exception:
-                return None
-
-        return {
-            "pe_ttm":           _v("peTTM"),
-            "pe_forward":       _v("peAnnual"),
-            "ps_ttm":           _v("psTTM"),
-            "pb_annual":        _v("pbAnnual"),
-            "ev_ebitda_ttm":    _v("evEbitdaTTM"),
-            "roe_ttm":          _v("roeTTM"),
-            "roe_annual":       _v("roeAnnual"),
-            "roa_ttm":          _v("roaTTM"),
-            "roic_ttm":         _v("roicTTM"),
-            "gross_margin_ttm": _v("grossMarginTTM"),
-            "ebitda_margin_ttm":_v("ebitdaMarginTTM"),
-            "net_margin_ttm":   _v("netProfitMarginTTM"),
-            "fcf_margin_ttm":   _v("fcfMarginTTM"),
-            "beta":             _v("beta"),
-            "week52_high":      _v("52WeekHigh"),
-            "week52_low":       _v("52WeekLow"),
-            "eps_ttm":          _v("epsTTM"),
-            "revenue_ttm_m":    _v("revenueTTM"),   # en millones
-            "ebitda_ttm_m":     _v("ebitdaTTM"),    # en millones
-            "fcf_ttm_m":        _v("freeCashFlowTTM"),  # en millones
-            "dividend_yield":   _v("dividendYieldIndicatedAnnual"),
-        }
+        metrics = await asyncio.get_event_loop().run_in_executor(
+            _yf_pool, _metrics_yfinance_sync, tkr
+        )
+        return metrics
     except Exception as e:
-        logger.warning("metrics %s failed: %s", ticker, e)
+        logger.warning("[fund] metrics %s: %s", tkr, e)
         return {}
 
 
-# ── Financials reported ───────────────────────────────────────────────────────
-
-def _parse_annual_financials(raw: dict) -> pd.DataFrame:
-    """
-    Parsea /stock/financials-reported de Finnhub.
-    Maneja el formato XBRL: ic/bs/cf son LISTAS de {concept, value}, NO dicts.
-    Espejo de _parse_financials_reported() en fundamental/client.py Streamlit.
-    """
-    records = raw.get("data") or []
-    if not records:
-        return pd.DataFrame()
-
-    rows = []
-    for report in records:
-        year = report.get("year")
-        if not year:
-            end_date_raw = report.get("endDate", "") or ""
-            year_str = end_date_raw[:4]
-            year = int(year_str) if year_str.isdigit() else None
-        if not year or year < 2010:
-            continue
-
-        end_date = report.get("endDate", "") or f"{year}-12-31"
-
-        rep = report.get("report", {}) or {}
-        ic  = _extract_concepts(rep.get("ic", []))
-        bs  = _extract_concepts(rep.get("bs", []))
-        cf  = _extract_concepts(rep.get("cf", []))
-
-        # Revenue (IC primero)
-        revenue = _pick(ic, _XBRL_MAP["revenue"])
-
-        # Net Income: IC primero, luego CF (CRWD y otros reportan como ProfitLoss en CF)
-        net_income = _pick(ic, _XBRL_MAP["net_income"]) or _pick(cf, _XBRL_MAP["net_income"])
-
-        # D&A: IC, luego CF, variantes custom
-        da = _pick(ic, _XBRL_MAP["da"]) or _pick(cf, _XBRL_MAP["da"])
-
-        # CFO: CF
-        cfo = _pick(cf, _XBRL_MAP["cfo"])
-
-        # Capex: CF (siempre positivo en XBRL, la resta se hace en derived)
-        capex_raw = _pick(cf, _XBRL_MAP["capex"])
-        capex = abs(capex_raw) if capex_raw is not None else None
-
-        row: dict = {
-            "year":             year,
-            "end_date":         end_date,
-            "revenue":          revenue,
-            "gross_profit":     _pick(ic, _XBRL_MAP["gross_profit"]),
-            "operating_income": _pick(ic, _XBRL_MAP["operating_income"]),
-            "net_income":       net_income,
-            "da":               da,
-            "eps_diluted":      _pick(ic, _XBRL_MAP["eps_diluted"]),
-            "cfo":              cfo,
-            "capex":            capex,
-            "cash":             _pick(bs, _XBRL_MAP["cash"]),
-            "debt_lt":          _pick(bs, _XBRL_MAP["debt_lt"]),
-            "debt_st":          _pick(bs, _XBRL_MAP["debt_st"]),
-            "equity":           _pick(bs, _XBRL_MAP["equity"]),
-            "total_assets":     _pick(bs, _XBRL_MAP["total_assets"]),
-        }
-
-        # Filtrar filas sin datos útiles
-        money_keys = ("revenue", "net_income", "cfo", "cash", "total_assets")
-        if not any(row.get(k) is not None for k in money_keys):
-            continue
-
-        rows.append(row)
-
-    if not rows:
-        return pd.DataFrame()
-
-    df = pd.DataFrame(rows)
-    df = df.sort_values("end_date", ascending=False).drop_duplicates("year")
-    df = df.sort_values("year").reset_index(drop=True)
-
-    # Escalar a millones de USD
-    money_cols = [
-        "revenue", "gross_profit", "operating_income", "net_income",
-        "da", "cfo", "capex", "cash", "debt_lt", "debt_st",
-        "equity", "total_assets",
-    ]
-    for col in money_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce") / 1_000_000.0
-
-    # EPS permanece en USD por acción (no escalar)
-    if "eps_diluted" in df.columns:
-        df["eps_diluted"] = pd.to_numeric(df["eps_diluted"], errors="coerce")
-
-    # Solo años con revenue real (> $1M en millones = > 0.001)
-    if "revenue" in df.columns:
-        df = df[df["revenue"].notna() & (df["revenue"].abs() > 0.001)]
-
-    # Máximo 6 años recientes
-    df = df.sort_values("year").tail(6).reset_index(drop=True)
-
-    return df
-
+# ══════════════════════════════════════════════════════════════════════════════
+# Financials (yfinance primario — evita complejidad XBRL de Finnhub)
+# ══════════════════════════════════════════════════════════════════════════════
 
 async def get_financials(ticker: str) -> dict:
-    """Estados financieros anuales + métricas derivadas. Usa disco como cache."""
-    cache_path = _parquet_path(ticker, "financials_annual")
-    if _HAS_PARQUET and _is_fresh(cache_path):
-        try:
-            df = pd.read_parquet(cache_path)
-            records = _compute_derived(df)
-            return {"ticker": ticker.upper(), "data": records}
-        except Exception:
-            pass
+    tkr = ticker.upper()
 
+    # 1. JSON estático (más rápido — pre-generado con build_fundamental_data.py)
+    static = _static_load(tkr)
+    if static and static.get("financials"):
+        logger.info("[fund] static cache hit: %s financials", tkr)
+        return {"ticker": tkr, "data": static["financials"]}
+
+    # 2. yfinance (primario — no requiere API key, fiable para los 13 curados)
     try:
-        raw = await _get("/stock/financials-reported", symbol=ticker.upper(), freq="annual")
-        df  = _parse_annual_financials(raw)
-        if not df.empty and _HAS_PARQUET:
-            try:
-                df.to_parquet(cache_path, index=False)
-            except Exception:
-                pass
-        records = _compute_derived(df)
-        return {"ticker": ticker.upper(), "data": records}
+        df = await asyncio.get_event_loop().run_in_executor(
+            _yf_pool, _financials_yfinance_sync, tkr
+        )
+        if not df.empty:
+            records = _compute_derived(df)
+            logger.info("[fund] yfinance financials %s: %d rows", tkr, len(records))
+            return {"ticker": tkr, "data": records}
     except Exception as e:
-        logger.warning("financials %s failed: %s", ticker, e)
-        return {"ticker": ticker.upper(), "data": []}
+        logger.warning("[fund] yfinance financials %s failed: %s", tkr, e)
+
+    logger.warning("[fund] financials %s: no data from any source", tkr)
+    return {"ticker": tkr, "data": []}
 
 
-# ── Candles (precio histórico) ────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Candles (yfinance primario — confiable, 5 años)
+# ══════════════════════════════════════════════════════════════════════════════
 
 async def get_candles(ticker: str, resolution: str = "W", from_ts: int = None, to_ts: int = None) -> dict:
+    tkr = ticker.upper()
+
+    # 1. JSON estático
+    static = _static_load(tkr)
+    if static and static.get("candles", {}).get("status") == "ok":
+        logger.info("[fund] static cache hit: %s candles", tkr)
+        return static["candles"]
+
+    # 2. yfinance (primario para histórico — no requiere API key)
     try:
-        now = int(time.time())
-        data = await _get(
-            "/stock/candle",
-            symbol=ticker.upper(),
-            resolution=resolution,
-            **{"from": from_ts or (now - 5 * 365 * 86400)},
-            to=to_ts or now,
+        candles = await asyncio.get_event_loop().run_in_executor(
+            _yf_pool, _candles_yfinance_sync, tkr
         )
-        if data.get("s") != "ok":
-            return {"status": "no_data", "dates": [], "closes": []}
-        return {
-            "status":  "ok",
-            "dates":   [pd.Timestamp(ts, unit="s").strftime("%Y-%m-%d") for ts in data.get("t", [])],
-            "opens":   data.get("o", []),
-            "highs":   data.get("h", []),
-            "lows":    data.get("l", []),
-            "closes":  data.get("c", []),
-            "volumes": data.get("v", []),
-        }
+        if candles.get("status") == "ok" and candles.get("dates"):
+            return candles
     except Exception as e:
-        logger.warning("candles %s failed: %s", ticker, e)
-        return {"status": "error", "dates": [], "closes": []}
+        logger.warning("[fund] yfinance candles %s: %s", tkr, e)
+
+    # 3. Finnhub fallback
+    if settings.finnhub_token:
+        try:
+            now     = int(time.time())
+            from_ts = from_ts or (now - 5 * 365 * 86400)
+            params  = dict(symbol=tkr, resolution=resolution, to=to_ts or now)
+            params["from"] = from_ts  # 'from' es keyword Python → dict directo
+            async with _finnhub_client() as c:
+                r = await c.get("/stock/candle", params={**params, "token": settings.finnhub_token})
+                r.raise_for_status()
+                data = r.json()
+            if data.get("s") == "ok":
+                return {
+                    "status":  "ok",
+                    "dates":   [pd.Timestamp(ts, unit="s").strftime("%Y-%m-%d") for ts in data.get("t", [])],
+                    "closes":  data.get("c", []),
+                }
+        except Exception as e:
+            logger.warning("[fund] Finnhub candles %s: %s", tkr, e)
+
+    return {"status": "no_data", "dates": [], "closes": []}
 
 
-# ── Full profile (batch para la UI) ──────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Full profile (batch para la UI: profile + quote + metrics + description + tags)
+# ══════════════════════════════════════════════════════════════════════════════
 
 async def get_full_profile(ticker: str) -> dict:
-    """Combina profile + quote + metrics para el header de la empresa."""
-    import asyncio
+    tkr = ticker.upper()
+
+    # JSON estático
+    static = _static_load(tkr)
+    if static and static.get("profile"):
+        logger.info("[fund] static cache hit: %s profile", tkr)
+        return {
+            "profile":     static["profile"],
+            "quote":       static.get("quote", {}),
+            "metrics":     static.get("metrics", {}),
+            "description": static.get("description", ""),
+            "tags":        static.get("tags", []),
+        }
+
     profile, quote, metrics = await asyncio.gather(
-        get_profile(ticker),
-        get_quote(ticker),
-        get_metrics(ticker),
+        get_profile(tkr),
+        get_quote(tkr),
+        get_metrics(tkr),
     )
-    cfg = TICKER_CONFIG.get(ticker.upper(), {})
+
+    cfg = TICKER_CONFIG.get(tkr, {})
     return {
-        "profile": profile,
-        "quote":   quote,
-        "metrics": metrics,
-        "description": cfg.get("description", ""),
+        "profile":     profile,
+        "quote":       quote,
+        "metrics":     metrics,
+        "description": cfg.get("description") or profile.get("description", ""),
         "tags":        cfg.get("tags", []),
     }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Build / refresh ticker JSON (llamado desde build_fundamental_data.py)
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def build_ticker_json(ticker: str) -> dict:
+    """Genera y guarda el JSON completo de un ticker."""
+    tkr = ticker.upper()
+    logger.info("[fund] building JSON for %s ...", tkr)
+
+    profile_full, fin, candles = await asyncio.gather(
+        get_full_profile(tkr),
+        get_financials(tkr),
+        get_candles(tkr),
+    )
+
+    payload = {
+        "ticker":      tkr,
+        "profile":     profile_full.get("profile", {}),
+        "quote":       profile_full.get("quote", {}),
+        "metrics":     profile_full.get("metrics", {}),
+        "description": profile_full.get("description", ""),
+        "tags":        profile_full.get("tags", []),
+        "financials":  fin.get("data", []),
+        "candles":     candles,
+    }
+
+    _static_save(tkr, payload)
+    return payload

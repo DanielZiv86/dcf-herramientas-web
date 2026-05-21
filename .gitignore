@@ -10,8 +10,10 @@ __pycache__/
 venv/
 env/
 
-# Data cache
-backend/data/fundamental/
+# Data cache — parquets efímeros (no commitear)
+backend/data/fundamental/*.parquet
+# JSONs estáticos por ticker — SÍ commitear (generados con build_fundamental_data.py)
+# backend/data/fundamental/tickers/  ← no ignorar
 .cache_*/
 
 # IDE
