@@ -1199,12 +1199,13 @@ function _afTooltip() {
 /**
  * Inicializa un gráfico ECharts en el elemento con el ID dado.
  * Si hasData es false, muestra emptyMsg como texto en lugar del chart.
- * Usa requestAnimationFrame para garantizar que el layout CSS esté listo.
+ * Patrón síncrono idéntico al de FCI/ONs que funciona correctamente.
  */
 function _afChartInit(domId, configureFn, { hasData = true, emptyMsg = 'Sin datos disponibles' } = {}) {
   const el = document.getElementById(domId);
   if (!el) return;
 
+  // Limpiar instancia anterior si existe (cambio de tab)
   const existing = echarts.getInstanceByDom(el);
   if (existing) existing.dispose();
 
@@ -1215,18 +1216,16 @@ function _afChartInit(domId, configureFn, { hasData = true, emptyMsg = 'Sin dato
     return;
   }
 
-  requestAnimationFrame(() => {
-    const chart = echarts.init(el, 'dcf');
-    try {
-      configureFn(chart);
-    } catch (e) {
-      console.warn(`[AF] chart ${domId} error:`, e);
-      el.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;
-        height:100%;font-family:${MONO};color:#475569;font-size:.75rem;padding:16px">
-        Error al renderizar el gráfico</div>`;
-      return;
-    }
-    chart.resize();
-    new ResizeObserver(() => { try { chart.resize(); } catch (_) {} }).observe(el);
-  });
+  const chart = echarts.init(el, 'dcf');
+  try {
+    configureFn(chart);
+  } catch (e) {
+    console.warn(`[AF] chart ${domId} error:`, e);
+    el.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;
+      height:100%;font-family:${MONO};color:#475569;font-size:.75rem;padding:16px">
+      Error al renderizar el gráfico</div>`;
+    return;
+  }
+  chart.resize();
+  new ResizeObserver(() => { try { chart.resize(); } catch (_) {} }).observe(el);
 }
