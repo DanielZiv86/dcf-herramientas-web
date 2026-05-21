@@ -90,10 +90,11 @@ const api = {
     historico: (fondoId, claseId, meses = 12) => apiFetch(`/fci/historico?fondo_id=${fondoId}&clase_id=${claseId}&meses=${meses}`),
   },
   fundamental: {
-    tickers:    () => apiFetch('/fundamental/tickers'),
-    perfil:     (ticker) => apiFetch(`/fundamental/perfil?ticker=${ticker}`),
+    tickers:     () => apiFetch('/fundamental/tickers'),
+    config:      () => apiFetch('/fundamental/config'),
+    perfil:      (ticker) => apiFetch(`/fundamental/perfil?ticker=${ticker}`),
     financieros: (ticker) => apiFetch(`/fundamental/financieros?ticker=${ticker}`),
-    candles:    (ticker, resolution = 'W') => apiFetch(`/fundamental/candles?ticker=${ticker}&resolution=${resolution}`),
+    candles:     (ticker, resolution = 'W') => apiFetch(`/fundamental/candles?ticker=${ticker}&resolution=${resolution}`),
   },
   auth: {
     me:     () => fetch(API_BASE + '/auth/me', { credentials: 'include' }).then(r => r.ok ? r.json() : null).catch(() => null),
