@@ -86,11 +86,11 @@ const _AF_MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','
       <div id="af-main"></div>
 
       <!-- Disclaimer compacto -->
-      <div style="margin-top:14px;padding:8px 12px;background:rgba(245,158,11,.05);
-        border:1px solid rgba(245,158,11,.15);border-radius:6px;
-        display:flex;gap:8px;align-items:flex-start">
-        <span style="color:#F59E0B;font-size:.75rem;flex-shrink:0;margin-top:1px">⚠</span>
-        <div style="font-family:${_MONO};font-size:.60rem;color:#4A5F75;line-height:1.55">
+      <div style="margin-top:10px;padding:6px 10px;background:rgba(245,158,11,.04);
+        border:1px solid rgba(245,158,11,.10);border-radius:6px;
+        display:flex;gap:7px;align-items:flex-start">
+        <span style="color:#F59E0B;font-size:.66rem;flex-shrink:0;margin-top:1px">⚠</span>
+        <div style="font-family:${_MONO};font-size:.58rem;color:#4A5F75;line-height:1.35">
           Solo fines informativos. No constituye asesoramiento de inversión.
           Fuentes: yfinance · Finnhub · DCF Inversiones.
         </div>
@@ -414,11 +414,111 @@ function _tabEmpresa(container, tk, profile, quote, metrics, desc, tags, data) {
 
 
 /* ══════════════════════════════════════════════════════════════════════════
-   TAB: NEGOCIO
+   TAB: NEGOCIO — v5 benchmark-match
+   Helpers propios (_kpiN, _cPanelN, _nBase, _nYaxM, _nYaxPct, _nLeg, _nTt)
+   para no afectar Rentabilidad / Financiera / Valuación.
    ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Negocio helpers ────────────────────────────────────────────────────── */
+
+// KPI card compacta para Negocio
+function _kpiN(label, value, sub, badge, color, negVal=false) {
+  let badgeHtml='';
+  if(badge!=null){
+    const col=negVal?_RE:(badge>=0?_GR:_RE);
+    const bg =negVal?'rgba(248,113,113,.10)':(badge>=0?'rgba(52,211,153,.10)':'rgba(248,113,113,.10)');
+    const arr=badge>=0?'▲':'▼';
+    const d  =Math.abs(badge)>=100?badge.toFixed(0):badge.toFixed(1);
+    badgeHtml=`<span style="background:${bg};color:${col};border:1px solid ${col}28;
+      border-radius:3px;padding:1px 4px;font-size:.53rem;font-weight:700;
+      margin-left:3px;white-space:nowrap;font-family:${_MONO}">${arr} ${badge>=0?'+':''}${d}%</span>`;
+  }
+  const vlen=String(value).length;
+  const vfont=vlen>9?'.84rem':vlen>7?'.97rem':'1.10rem';
+  return`<div style="background:#101827;border:1px solid #1E2D3D;border-top:3px solid ${color};
+    border-radius:9px;padding:8px 10px;min-height:66px;box-sizing:border-box">
+    <div style="font-size:.51rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+      color:#4A5F75;margin-bottom:3px;font-family:${_MONO};white-space:nowrap;
+      overflow:hidden;text-overflow:ellipsis">${label}</div>
+    <div style="font-size:${vfont};font-weight:800;color:#F4F7FB;line-height:1;
+      white-space:nowrap;font-family:${_MONO}">${value}</div>
+    <div style="margin-top:3px;font-size:.56rem;color:#4A5F75;font-family:${_MONO};
+      display:flex;align-items:center;flex-wrap:wrap;gap:2px">
+      <span>${sub||''}</span>${badgeHtml}
+    </div>
+  </div>`;
+}
+
+// Panel de chart para Negocio — header más oscuro, borde naranja más nítido
+function _cPanelN(id, title, sub) {
+  return `<div style="background:#101827;border:1px solid #1E2D3D;border-radius:10px;overflow:hidden">
+    <div style="padding:8px 12px 6px;background:rgba(10,18,30,.85);
+      border-bottom:1px solid rgba(245,158,11,.32)">
+      <div style="font-size:.52rem;font-weight:700;letter-spacing:.11em;text-transform:uppercase;
+        color:#7F93AD;font-family:${_MONO};margin-bottom:${sub?'3px':'0'}">${title}</div>
+      ${sub?`<div style="font-size:.90rem;font-weight:800;color:#F4F7FB;font-family:${_MONO};
+        line-height:1.1">${sub}</div>`:''}
+    </div>
+    <div id="${id}" style="height:228px"></div>
+  </div>`;
+}
+
+// ECharts base para Negocio — gridlines más sutiles (.07), ejes en #7F93AD
+function _nBase(xData) {
+  return {
+    grid:{left:10,right:10,top:8,bottom:28,containLabel:true},
+    xAxis:[{type:'category',data:xData,boundaryGap:true,
+      axisLabel:{color:'#7F93AD',fontFamily:_MONO,fontSize:8.5,interval:0},
+      axisLine:{lineStyle:{color:'rgba(30,45,61,.7)'}},
+      axisTick:{lineStyle:{color:'rgba(30,45,61,.5)'}},
+      splitLine:{show:false}}],
+    backgroundColor:'transparent',
+  };
+}
+
+function _nYaxM(){
+  return{type:'value',
+    axisLabel:{color:'#7F93AD',fontFamily:_MONO,fontSize:8.5,
+      formatter:v=>`${Math.abs(v)>=1000?(v<0?'-':'')+'$'+(Math.abs(v)/1000).toFixed(0)+'B':'$'+v.toFixed(0)+'M'}`},
+    splitLine:{lineStyle:{color:'rgba(120,150,180,.07)',type:'dashed'}},
+    axisLine:{show:false},axisTick:{show:false}};
+}
+
+function _nYaxPct(){
+  return{type:'value',
+    axisLabel:{color:'#7F93AD',fontFamily:_MONO,fontSize:8.5,
+      formatter:v=>`${v.toFixed(0)}%`},
+    splitLine:{lineStyle:{color:'rgba(120,150,180,.07)',type:'dashed'}},
+    axisLine:{show:false},axisTick:{show:false}};
+}
+
+function _nYax2(fmt){
+  return{type:'value',
+    axisLabel:{color:'#7F93AD',fontFamily:_MONO,fontSize:8.5,formatter:fmt},
+    splitLine:{show:false},axisLine:{show:false},axisTick:{show:false}};
+}
+
+// Leyenda horizontal compacta para Negocio
+function _nLeg(data) {
+  return{data,orient:'horizontal',bottom:2,left:0,
+    textStyle:{color:'#7F93AD',fontSize:8.5,fontFamily:_MONO},
+    icon:'rect',itemWidth:12,itemHeight:7,
+    backgroundColor:'transparent'};
+}
+
+// Tooltip oscuro para Negocio
+function _nTt(){
+  return{trigger:'axis',backgroundColor:'#0B1220',
+    borderColor:'rgba(30,45,61,.9)',borderWidth:1,padding:[7,11],
+    textStyle:{fontFamily:_MONO,fontSize:10,color:'#C8D8E8'},
+    axisPointer:{lineStyle:{color:'rgba(120,150,180,.12)'}}};
+}
+
+/* ── Tab Negocio ─────────────────────────────────────────────────────────── */
 
 function _tabNegocio(container, tk, data, metrics) {
   if (!data.length) { container.innerHTML = _noData('Sin datos financieros anuales'); return; }
+
   const last  = data[data.length-1];
   const first = data[0];
   const fy    = `FY${String(last.year).slice(2)}`;
@@ -431,124 +531,122 @@ function _tabNegocio(container, tk, data, metrics) {
   const eps   = last.eps_diluted ?? metrics.eps_ttm;
   const cagr  = last.rev_cagr_3y;
 
-  // Color semántico de borde superior (rojo si negativo)
   const ebitdaC = ebitda!=null&&ebitda<0 ? _RE : _VI;
   const niC     = ni!=null&&ni<0         ? _RE : _GR;
   const fcfC    = fcf!=null&&fcf<0       ? _RE : _OR;
 
   const kpis=[
-    {l:'REVENUE',      v:_fmtM(rev),   s:fy,                  b:last.revenue_yoy,    c:_CY},
-    {l:'GROSS PROFIT', v:_fmtM(gp),    s:_marg(gp,rev),       b:null,                c:_SK},
-    {l:'EBITDA',       v:_fmtM(ebitda),s:_marg(ebitda,rev),   b:null,                c:ebitdaC, neg:ebitda!=null&&ebitda<0},
-    {l:'NET INCOME',   v:_fmtM(ni),    s:_marg(ni,rev),       b:last.net_income_yoy, c:niC,     neg:ni!=null&&ni<0},
-    {l:'EPS DILUIDO',  v:eps!=null?`$${Number(eps).toFixed(2)}`:'—',s:fy,b:null,     c:_YL},
-    {l:'FCF',          v:_fmtM(fcf),   s:_marg(fcf,rev),      b:last.fcf_yoy,        c:fcfC,    neg:fcf!=null&&fcf<0},
+    {l:'REVENUE',      v:_fmtM(rev),    s:fy,                b:last.revenue_yoy,    c:_CY},
+    {l:'GROSS PROFIT', v:_fmtM(gp),     s:_marg(gp,rev),     b:null,                c:_SK},
+    {l:'EBITDA',       v:_fmtM(ebitda), s:_marg(ebitda,rev), b:null,                c:ebitdaC, neg:ebitda!=null&&ebitda<0},
+    {l:'NET INCOME',   v:_fmtM(ni),     s:_marg(ni,rev),     b:last.net_income_yoy, c:niC,     neg:ni!=null&&ni<0},
+    {l:'EPS DILUIDO',  v:eps!=null?`$${Number(eps).toFixed(2)}`:'—',s:fy,b:null,   c:_YL},
+    {l:'FCF',          v:_fmtM(fcf),    s:_marg(fcf,rev),    b:last.fcf_yoy,        c:fcfC,    neg:fcf!=null&&fcf<0},
     {l:'REV CAGR',     v:cagr!=null?`${cagr.toFixed(1)}%`:'—',s:`${fy0}→${fy}`,b:null,c:_PI},
   ];
 
-  const years=data.map(d=>`FY${String(d.year).slice(2)}`);
-  const n=years.length;
+  const years = data.map(d=>`FY${String(d.year).slice(2)}`);
+  const n     = years.length;
 
-  // Sub-textos para los headers de cada chart
   const revStr  = _fmtM(rev);
   const yoyLast = last.revenue_yoy;
   const yoyStr  = yoyLast!=null?`${yoyLast>=0?'+':''}${yoyLast.toFixed(1)}% YoY`:'';
   const ebitStr = ebitda!=null?`EBITDA ${_fmtM(ebitda)}`:'';
   const niStr   = ni!=null?`NI ${_fmtM(ni)}`:'';
 
-  // Grilla forzada a 7 columnas iguales (no auto-fill que podría generar 2 filas)
   container.innerHTML=`
-    <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;margin-bottom:12px">
-      ${kpis.map(k=>_kpi(k.l,k.v,k.s,k.b,k.c,k.neg||false)).join('')}
+    <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:9px;margin-bottom:10px">
+      ${kpis.map(k=>_kpiN(k.l,k.v,k.s,k.b,k.c,k.neg||false)).join('')}
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      ${_cPanel('af-c-rev',   'REVENUE & EARNINGS', revStr)}
-      ${_cPanel('af-c-yoy',   'CRECIMIENTO YoY',    yoyStr)}
-      ${_cPanel('af-c-ebitda','EBITDA & MARGEN',     ebitStr)}
-      ${_cPanel('af-c-nieps', 'NET INCOME & EPS',    niStr)}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      ${_cPanelN('af-c-rev',   'REVENUE & EARNINGS', revStr)}
+      ${_cPanelN('af-c-yoy',   'CRECIMIENTO YoY',    yoyStr)}
+      ${_cPanelN('af-c-ebitda','EBITDA & MARGEN',     ebitStr)}
+      ${_cPanelN('af-c-nieps', 'NET INCOME & EPS',    niStr)}
     </div>`;
 
-  // Chart 1: Revenue & Earnings — barras agrupadas con esquinas redondeadas
+  // Chart 1: Revenue (cyan binary) + Net Income (sign-based green/red)
   _ch('af-c-rev', ch=>{
     ch.setOption({
-      ..._base(years),
-      yAxis:[_yaxM()],
-      legend:_leg(['Revenue','Net Income'],{bottom:0}),
+      ..._nBase(years),
+      yAxis:[_nYaxM()],
+      legend:_nLeg(['Revenue','Net Income']),
       series:[
-        {name:'Revenue',   type:'bar',barGap:'5%',barCategoryGap:'30%',
+        {name:'Revenue',   type:'bar',barGap:'4%',barCategoryGap:'38%',
           itemStyle:{borderRadius:[3,3,0,0]},
           data:data.map((d,i)=>({value:d.revenue,   itemStyle:{color:_hist(_CY,_CYS,i,n)}}))},
         {name:'Net Income',type:'bar',
           itemStyle:{borderRadius:[3,3,0,0]},
           data:data.map((d,i)=>({value:d.net_income,itemStyle:{color:_signHist(d.net_income,i,n)}}))},
       ],
-      tooltip:{..._tt(),valueFormatter:v=>v!=null?`$${v.toFixed(0)}M`:'—'},
+      tooltip:{..._nTt(),valueFormatter:v=>v!=null?`$${v.toFixed(0)}M`:'—'},
     });
   });
 
-  // Chart 2: YoY — solo años con dato (FY1 siempre null por falta de FY0 base)
+  // Chart 2: Revenue YoY — línea violeta + área suave + markLine cero
   _ch('af-c-yoy', ch=>{
     const yoyPairs=data.map(d=>({y:`FY${String(d.year).slice(2)}`,v:d.revenue_yoy})).filter(p=>p.v!=null);
     const yoyYears=yoyPairs.map(p=>p.y);
     const yoyVals =yoyPairs.map(p=>p.v);
     ch.setOption({
-      ..._base(yoyYears),
-      yAxis:[_yaxPct()],
+      ..._nBase(yoyYears),
+      yAxis:[_nYaxPct()],
       series:[{name:'Rev YoY %',type:'line',data:yoyVals,
-        smooth:false,symbol:'circle',symbolSize:5,
+        smooth:false,symbol:'circle',symbolSize:4,
         lineStyle:{color:_VI,width:2},itemStyle:{color:_VI},
-        areaStyle:{color:'rgba(139,92,246,.14)'},
+        areaStyle:{color:'rgba(139,92,246,.11)'},
         markLine:{silent:true,data:[{yAxis:0}],
-          lineStyle:{color:'rgba(139,92,246,.30)',width:1,type:'dashed'},
+          lineStyle:{color:'rgba(139,92,246,.22)',width:1,type:'dashed'},
           label:{show:false},symbol:'none'},
       }],
-      tooltip:{..._tt(),valueFormatter:v=>v!=null?`${v>=0?'+':''}${v.toFixed(1)}%`:'—'},
+      tooltip:{..._nTt(),valueFormatter:v=>v!=null?`${v>=0?'+':''}${v.toFixed(1)}%`:'—'},
     });
   },!data.some(d=>d.revenue_yoy!=null));
 
-  // Chart 3: EBITDA + Margen — violeta uniforme (mismo color, último sólido, histórico transparente)
+  // Chart 3: EBITDA sign-based (violet positivo, red negativo) + Margen pink
   _ch('af-c-ebitda', ch=>{
     ch.setOption({
-      ..._base(years),
+      ..._nBase(years),
       yAxis:[
-        _yaxM(),
-        {type:'value',axisLabel:{color:'#4A5F75',fontFamily:_MONO,fontSize:9,
-          formatter:v=>`${v.toFixed(0)}%`},
-          splitLine:{show:false},axisLine:{show:false},axisTick:{show:false}},
+        _nYaxM(),
+        _nYax2(v=>`${v.toFixed(0)}%`),
       ],
-      legend:_leg(['EBITDA','Margen %'],{bottom:0}),
+      legend:_nLeg(['EBITDA','Margen %']),
       series:[
-        {name:'EBITDA',type:'bar',yAxisIndex:0,barCategoryGap:'35%',
-          itemStyle:{borderRadius:2},
-          data:data.map((d,i)=>({value:d.ebitda_est,itemStyle:{color:i===n-1?_VI:_VIS}}))},
-        {name:'Margen %',type:'line',yAxisIndex:1,data:data.map(d=>d.ebitda_margin??null),
+        {name:'EBITDA',type:'bar',yAxisIndex:0,barCategoryGap:'38%',
+          itemStyle:{borderRadius:[2,2,0,0]},
+          data:data.map((d,i)=>{
+            const v=d.ebitda_est,isL=i===n-1;
+            return{value:v,itemStyle:{color:v!=null&&v<0?(isL?_RE:_RES):(isL?_VI:_VIS)}};
+          })},
+        {name:'Margen %',type:'line',yAxisIndex:1,
+          data:data.map(d=>d.ebitda_margin??null),
           connectNulls:false,smooth:false,symbol:'circle',symbolSize:4,
           lineStyle:{color:_PI,width:1.8},itemStyle:{color:_PI}},
       ],
-      tooltip:{..._tt()},
+      tooltip:{..._nTt()},
     });
   });
 
-  // Chart 4: Net Income + EPS — verde uniforme + línea amarilla (mismo criterio que EBITDA)
+  // Chart 4: Net Income sign-based (green/red) + EPS línea amarilla
   _ch('af-c-nieps', ch=>{
     ch.setOption({
-      ..._base(years),
+      ..._nBase(years),
       yAxis:[
-        _yaxM(),
-        {type:'value',axisLabel:{color:'#4A5F75',fontFamily:_MONO,fontSize:9,
-          formatter:v=>`$${v.toFixed(1)}`},
-          splitLine:{show:false},axisLine:{show:false},axisTick:{show:false}},
+        _nYaxM(),
+        _nYax2(v=>`$${Math.abs(v)<10?v.toFixed(2):v.toFixed(1)}`),
       ],
-      legend:_leg(['Net Income','EPS'],{bottom:0}),
+      legend:_nLeg(['Net Income','EPS']),
       series:[
-        {name:'Net Income',type:'bar',yAxisIndex:0,barCategoryGap:'35%',
-          itemStyle:{borderRadius:2},
-          data:data.map((d,i)=>({value:d.net_income,itemStyle:{color:i===n-1?_GR:_GRS}}))},
-        {name:'EPS',type:'line',yAxisIndex:1,data:data.map(d=>d.eps_diluted??null),
+        {name:'Net Income',type:'bar',yAxisIndex:0,barCategoryGap:'38%',
+          itemStyle:{borderRadius:[2,2,0,0]},
+          data:data.map((d,i)=>({value:d.net_income,itemStyle:{color:_signHist(d.net_income,i,n)}}))},
+        {name:'EPS',type:'line',yAxisIndex:1,
+          data:data.map(d=>d.eps_diluted??null),
           connectNulls:false,smooth:false,symbol:'circle',symbolSize:4,
           lineStyle:{color:_YL,width:1.8},itemStyle:{color:_YL}},
       ],
-      tooltip:{..._tt()},
+      tooltip:{..._nTt()},
     });
   });
 }
