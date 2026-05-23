@@ -431,41 +431,52 @@ function _tabNegocio(container, tk, data, metrics) {
   const eps   = last.eps_diluted ?? metrics.eps_ttm;
   const cagr  = last.rev_cagr_3y;
 
+  // Color semántico de borde superior (rojo si negativo)
+  const ebitdaC = ebitda!=null&&ebitda<0 ? _RE : _VI;
+  const niC     = ni!=null&&ni<0         ? _RE : _GR;
+  const fcfC    = fcf!=null&&fcf<0       ? _RE : _OR;
+
   const kpis=[
-    {l:'REVENUE',    v:_fmtM(rev),  s:fy,                  b:last.revenue_yoy, c:_CY},
-    {l:'GROSS PROFIT',v:_fmtM(gp), s:_marg(gp,rev),        b:null,             c:_SK},
-    {l:'EBITDA',     v:_fmtM(ebitda),s:_marg(ebitda,rev),  b:null,             c:_VI, neg:ebitda!=null&&ebitda<0},
-    {l:'NET INCOME', v:_fmtM(ni),  s:_marg(ni,rev),         b:last.net_income_yoy,c:ni!=null&&ni>=0?_GR:_RE,neg:ni!=null&&ni<0},
-    {l:'EPS DILUIDO',v:eps!=null?`$${Number(eps).toFixed(2)}`:'—',s:fy,b:null,c:_YL},
-    {l:'FCF',        v:_fmtM(fcf), s:_marg(fcf,rev),        b:last.fcf_yoy,    c:_OR, neg:fcf!=null&&fcf<0},
-    {l:'REV CAGR',   v:cagr!=null?`${cagr.toFixed(1)}%`:'—',s:`${fy0}→${fy}`,b:null,c:_PI},
+    {l:'REVENUE',      v:_fmtM(rev),   s:fy,                  b:last.revenue_yoy,    c:_CY},
+    {l:'GROSS PROFIT', v:_fmtM(gp),    s:_marg(gp,rev),       b:null,                c:_SK},
+    {l:'EBITDA',       v:_fmtM(ebitda),s:_marg(ebitda,rev),   b:null,                c:ebitdaC, neg:ebitda!=null&&ebitda<0},
+    {l:'NET INCOME',   v:_fmtM(ni),    s:_marg(ni,rev),       b:last.net_income_yoy, c:niC,     neg:ni!=null&&ni<0},
+    {l:'EPS DILUIDO',  v:eps!=null?`$${Number(eps).toFixed(2)}`:'—',s:fy,b:null,     c:_YL},
+    {l:'FCF',          v:_fmtM(fcf),   s:_marg(fcf,rev),      b:last.fcf_yoy,        c:fcfC,    neg:fcf!=null&&fcf<0},
+    {l:'REV CAGR',     v:cagr!=null?`${cagr.toFixed(1)}%`:'—',s:`${fy0}→${fy}`,b:null,c:_PI},
   ];
 
   const years=data.map(d=>`FY${String(d.year).slice(2)}`);
   const n=years.length;
-  const lastRev=_fmtM(rev);
-  const lastNI=ni!=null?`NI: ${_fmtM(ni)}`:'';
 
+  // Sub-textos para los headers de cada chart
+  const revStr  = _fmtM(rev);
+  const yoyLast = last.revenue_yoy;
+  const yoyStr  = yoyLast!=null?`${yoyLast>=0?'+':''}${yoyLast.toFixed(1)}% YoY`:'';
+  const ebitStr = ebitda!=null?`EBITDA ${_fmtM(ebitda)}`:'';
+  const niStr   = ni!=null?`NI ${_fmtM(ni)}`:'';
+
+  // Grilla forzada a 7 columnas iguales (no auto-fill que podría generar 2 filas)
   container.innerHTML=`
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-bottom:12px">
+    <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;margin-bottom:12px">
       ${kpis.map(k=>_kpi(k.l,k.v,k.s,k.b,k.c,k.neg||false)).join('')}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      ${_cPanel('af-c-rev',   'REVENUE & EARNINGS',lastRev)}
-      ${_cPanel('af-c-yoy',   'CRECIMIENTO YoY','')}
-      ${_cPanel('af-c-ebitda','EBITDA & MARGEN',ebitda!=null?`EBITDA ${_fmtM(ebitda)}`:'')}
-      ${_cPanel('af-c-nieps', 'NET INCOME & EPS',ni!=null?`NI ${_fmtM(ni)}`:'')}
+      ${_cPanel('af-c-rev',   'REVENUE & EARNINGS', revStr)}
+      ${_cPanel('af-c-yoy',   'CRECIMIENTO YoY',    yoyStr)}
+      ${_cPanel('af-c-ebitda','EBITDA & MARGEN',     ebitStr)}
+      ${_cPanel('af-c-nieps', 'NET INCOME & EPS',    niStr)}
     </div>`;
 
-  // Revenue & Earnings — barras agrupadas lado a lado (NO superpuestas)
+  // Chart 1: Revenue & Earnings — barras agrupadas (cyan/verde-rojo, último sólido)
   _ch('af-c-rev', ch=>{
     ch.setOption({
       ..._base(years),
       yAxis:[_yaxM()],
       legend:_leg(['Revenue','Net Income'],{bottom:0}),
       series:[
-        {name:'Revenue',   type:'bar',barGap:'5%',barCategoryGap:'22%',
-          data:data.map((d,i)=>({value:d.revenue,  itemStyle:{color:_hist(_CY,_CYS,i,n)}}))},
+        {name:'Revenue',   type:'bar',barGap:'5%',barCategoryGap:'30%',
+          data:data.map((d,i)=>({value:d.revenue,   itemStyle:{color:_hist(_CY,_CYS,i,n)}}))},
         {name:'Net Income',type:'bar',
           data:data.map((d,i)=>({value:d.net_income,itemStyle:{color:_signHist(d.net_income,i,n)}}))},
       ],
@@ -473,52 +484,65 @@ function _tabNegocio(container, tk, data, metrics) {
     });
   });
 
-  // YoY — línea violeta con área
+  // Chart 2: YoY — línea violeta con área suave (benchmark: violet + fill .14)
   _ch('af-c-yoy', ch=>{
-    const yoyD=data.map(d=>d.revenue_yoy);
+    const yoyD=data.map(d=>d.revenue_yoy??null);
     ch.setOption({
       ..._base(years),
       yAxis:[_yaxPct()],
-      series:[{name:'Revenue YoY',type:'line',data:yoyD,
-        smooth:false,symbol:'circle',symbolSize:5,
+      series:[{name:'Rev YoY %',type:'line',data:yoyD,
+        smooth:false,symbol:'circle',symbolSize:5,connectNulls:false,
         lineStyle:{color:_VI,width:2},itemStyle:{color:_VI},
-        areaStyle:{color:'rgba(139,92,246,.08)'},
-        markLine:{data:[{yAxis:0}],lineStyle:{color:'rgba(139,92,246,.25)',width:1},
+        areaStyle:{color:'rgba(139,92,246,.14)'},
+        markLine:{silent:true,data:[{yAxis:0}],
+          lineStyle:{color:'rgba(139,92,246,.30)',width:1,type:'dashed'},
           label:{show:false},symbol:'none'},
       }],
       tooltip:{..._tt(),valueFormatter:v=>v!=null?`${v>=0?'+':''}${v.toFixed(1)}%`:'—'},
     });
   },!data.some(d=>d.revenue_yoy!=null));
 
-  // EBITDA + Margen — barras violeta + línea pink
+  // Chart 3: EBITDA + Margen — barras violet/rojo (negativo=rojo) + línea pink
   _ch('af-c-ebitda', ch=>{
     ch.setOption({
       ..._base(years),
-      yAxis:[_yaxM(),{type:'value',axisLabel:{color:'#4A5F75',fontFamily:_MONO,fontSize:9,
-        formatter:v=>`${v.toFixed(0)}%`},splitLine:{show:false},axisLine:{show:false}}],
+      yAxis:[
+        _yaxM(),
+        {type:'value',axisLabel:{color:'#4A5F75',fontFamily:_MONO,fontSize:9,
+          formatter:v=>`${v.toFixed(0)}%`},
+          splitLine:{show:false},axisLine:{show:false},axisTick:{show:false}},
+      ],
       legend:_leg(['EBITDA','Margen %'],{bottom:0}),
       series:[
-        {name:'EBITDA',type:'bar',yAxisIndex:0,
-          data:data.map((d,i)=>({value:d.ebitda_est,itemStyle:{color:i===n-1?_VI:_VIS}}))},
-        {name:'Margen %',type:'line',yAxisIndex:1,data:data.map(d=>d.ebitda_margin),
-          smooth:false,symbol:'circle',symbolSize:4,lineStyle:{color:_PI,width:1.8},itemStyle:{color:_PI}},
+        {name:'EBITDA',type:'bar',yAxisIndex:0,barCategoryGap:'35%',
+          data:data.map((d,i)=>({value:d.ebitda_est,
+            itemStyle:{color:d.ebitda_est!=null&&d.ebitda_est<0
+              ?(i===n-1?_RE:_RES):(i===n-1?_VI:_VIS)}}))},
+        {name:'Margen %',type:'line',yAxisIndex:1,data:data.map(d=>d.ebitda_margin??null),
+          connectNulls:false,smooth:false,symbol:'circle',symbolSize:4,
+          lineStyle:{color:_PI,width:1.8},itemStyle:{color:_PI}},
       ],
       tooltip:{..._tt()},
     });
   });
 
-  // Net Income + EPS — barras verde/rojo + línea amarilla
+  // Chart 4: Net Income + EPS — barras verde/rojo + línea amarilla (eje secundario)
   _ch('af-c-nieps', ch=>{
     ch.setOption({
       ..._base(years),
-      yAxis:[_yaxM(),{type:'value',axisLabel:{color:'#4A5F75',fontFamily:_MONO,fontSize:9,
-        formatter:v=>`$${v.toFixed(1)}`},splitLine:{show:false},axisLine:{show:false}}],
+      yAxis:[
+        _yaxM(),
+        {type:'value',axisLabel:{color:'#4A5F75',fontFamily:_MONO,fontSize:9,
+          formatter:v=>`$${v.toFixed(1)}`},
+          splitLine:{show:false},axisLine:{show:false},axisTick:{show:false}},
+      ],
       legend:_leg(['Net Income','EPS'],{bottom:0}),
       series:[
-        {name:'Net Income',type:'bar',yAxisIndex:0,
+        {name:'Net Income',type:'bar',yAxisIndex:0,barCategoryGap:'35%',
           data:data.map((d,i)=>({value:d.net_income,itemStyle:{color:_signHist(d.net_income,i,n)}}))},
-        {name:'EPS',type:'line',yAxisIndex:1,data:data.map(d=>d.eps_diluted),
-          smooth:false,symbol:'circle',symbolSize:4,lineStyle:{color:_YL,width:1.8},itemStyle:{color:_YL}},
+        {name:'EPS',type:'line',yAxisIndex:1,data:data.map(d=>d.eps_diluted??null),
+          connectNulls:false,smooth:false,symbol:'circle',symbolSize:4,
+          lineStyle:{color:_YL,width:1.8},itemStyle:{color:_YL}},
       ],
       tooltip:{..._tt()},
     });
@@ -1033,16 +1057,14 @@ function _renderCompareTable(el, summaries) {
 
 // Panel de chart: título + línea naranja accent + valor métrico
 function _cPanel(id, title, sub) {
-  return `<div style="background:${_CARD};border:1px solid ${_BOR};border-radius:9px;overflow:hidden">
-    <div style="padding:9px 13px 6px;border-bottom:1px solid rgba(30,45,61,.6)">
-      <div style="font-size:.56rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-        color:#4A5F75;font-family:${_MONO};margin-bottom:3px">${title}</div>
-      <div style="height:1.5px;width:28px;background:linear-gradient(90deg,${_OR},transparent);
-        border-radius:1px;margin-bottom:${sub?'4px':'0'}"></div>
-      ${sub?`<div style="font-size:.78rem;font-weight:700;color:#C8D8E8;font-family:${_MONO};
+  return `<div style="background:${_CARD};border:1px solid ${_BOR};border-radius:10px;overflow:hidden">
+    <div style="padding:9px 13px 7px;background:rgba(6,11,23,.45);border-bottom:1px solid rgba(245,158,11,.18)">
+      <div style="font-size:.55rem;font-weight:700;letter-spacing:.10em;text-transform:uppercase;
+        color:#4A5F75;font-family:${_MONO};margin-bottom:4px">${title}</div>
+      ${sub?`<div style="font-size:.82rem;font-weight:700;color:#C8D8E8;font-family:${_MONO};
         line-height:1.1">${sub}</div>`:''}
     </div>
-    <div id="${id}" style="height:236px"></div>
+    <div id="${id}" style="height:240px"></div>
   </div>`;
 }
 
@@ -1214,8 +1236,8 @@ function _kpi(label, value, sub, badge, color, negVal=false) {
   const vlen=String(value).length;
   const vfont=vlen>9?'.90rem':vlen>7?'1.05rem':'1.18rem';
 
-  return`<div style="background:${_CARD};border:1px solid ${_BOR};border-top:2px solid ${color};
-    border-radius:8px;padding:10px 12px;min-height:68px">
+  return`<div style="background:${_CARD};border:1px solid ${_BOR};border-top:3px solid ${color};
+    border-radius:10px;padding:9px 11px;min-height:68px">
     <div style="font-size:.54rem;font-weight:700;letter-spacing:.10em;text-transform:uppercase;
       color:#2D4157;margin-bottom:4px;font-family:${_MONO};white-space:nowrap">${label}</div>
     <div style="font-size:${vfont};font-weight:800;color:#F4F7FB;line-height:1.1;
