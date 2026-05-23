@@ -46,7 +46,7 @@ const _TABS = [
   { id: 'comparar',     label: 'Comparar',     icon: '⚡' },
 ];
 
-const _MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+const _AF_MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -335,7 +335,7 @@ function _renderHero(el, tk, profile, quote, metrics, desc, tags, data) {
 
 function _fyStr(last) {
   if (!last?.end_date) return '—';
-  try { const d=new Date(last.end_date+'T00:00:00'); return `${_MESES[d.getMonth()]} ${d.getDate()}`; }
+  try { const d=new Date(last.end_date+'T00:00:00'); return `${_AF_MESES[d.getMonth()]} ${d.getDate()}`; }
   catch(_) { return '—'; }
 }
 
