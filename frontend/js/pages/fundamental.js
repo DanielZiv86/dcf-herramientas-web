@@ -468,7 +468,7 @@ function _tabNegocio(container, tk, data, metrics) {
       ${_cPanel('af-c-nieps', 'NET INCOME & EPS',    niStr)}
     </div>`;
 
-  // Chart 1: Revenue & Earnings — barras agrupadas (cyan/verde-rojo, último sólido)
+  // Chart 1: Revenue & Earnings — barras agrupadas con esquinas redondeadas
   _ch('af-c-rev', ch=>{
     ch.setOption({
       ..._base(years),
@@ -476,22 +476,26 @@ function _tabNegocio(container, tk, data, metrics) {
       legend:_leg(['Revenue','Net Income'],{bottom:0}),
       series:[
         {name:'Revenue',   type:'bar',barGap:'5%',barCategoryGap:'30%',
+          itemStyle:{borderRadius:[3,3,0,0]},
           data:data.map((d,i)=>({value:d.revenue,   itemStyle:{color:_hist(_CY,_CYS,i,n)}}))},
         {name:'Net Income',type:'bar',
+          itemStyle:{borderRadius:[3,3,0,0]},
           data:data.map((d,i)=>({value:d.net_income,itemStyle:{color:_signHist(d.net_income,i,n)}}))},
       ],
       tooltip:{..._tt(),valueFormatter:v=>v!=null?`$${v.toFixed(0)}M`:'—'},
     });
   });
 
-  // Chart 2: YoY — línea violeta con área suave (benchmark: violet + fill .14)
+  // Chart 2: YoY — solo años con dato (FY1 siempre null por falta de FY0 base)
   _ch('af-c-yoy', ch=>{
-    const yoyD=data.map(d=>d.revenue_yoy??null);
+    const yoyPairs=data.map(d=>({y:`FY${String(d.year).slice(2)}`,v:d.revenue_yoy})).filter(p=>p.v!=null);
+    const yoyYears=yoyPairs.map(p=>p.y);
+    const yoyVals =yoyPairs.map(p=>p.v);
     ch.setOption({
-      ..._base(years),
+      ..._base(yoyYears),
       yAxis:[_yaxPct()],
-      series:[{name:'Rev YoY %',type:'line',data:yoyD,
-        smooth:false,symbol:'circle',symbolSize:5,connectNulls:false,
+      series:[{name:'Rev YoY %',type:'line',data:yoyVals,
+        smooth:false,symbol:'circle',symbolSize:5,
         lineStyle:{color:_VI,width:2},itemStyle:{color:_VI},
         areaStyle:{color:'rgba(139,92,246,.14)'},
         markLine:{silent:true,data:[{yAxis:0}],
@@ -502,7 +506,7 @@ function _tabNegocio(container, tk, data, metrics) {
     });
   },!data.some(d=>d.revenue_yoy!=null));
 
-  // Chart 3: EBITDA + Margen — barras violet/rojo (negativo=rojo) + línea pink
+  // Chart 3: EBITDA + Margen — violeta uniforme (mismo color, último sólido, histórico transparente)
   _ch('af-c-ebitda', ch=>{
     ch.setOption({
       ..._base(years),
@@ -515,9 +519,8 @@ function _tabNegocio(container, tk, data, metrics) {
       legend:_leg(['EBITDA','Margen %'],{bottom:0}),
       series:[
         {name:'EBITDA',type:'bar',yAxisIndex:0,barCategoryGap:'35%',
-          data:data.map((d,i)=>({value:d.ebitda_est,
-            itemStyle:{color:d.ebitda_est!=null&&d.ebitda_est<0
-              ?(i===n-1?_RE:_RES):(i===n-1?_VI:_VIS)}}))},
+          itemStyle:{borderRadius:2},
+          data:data.map((d,i)=>({value:d.ebitda_est,itemStyle:{color:i===n-1?_VI:_VIS}}))},
         {name:'Margen %',type:'line',yAxisIndex:1,data:data.map(d=>d.ebitda_margin??null),
           connectNulls:false,smooth:false,symbol:'circle',symbolSize:4,
           lineStyle:{color:_PI,width:1.8},itemStyle:{color:_PI}},
@@ -526,7 +529,7 @@ function _tabNegocio(container, tk, data, metrics) {
     });
   });
 
-  // Chart 4: Net Income + EPS — barras verde/rojo + línea amarilla (eje secundario)
+  // Chart 4: Net Income + EPS — verde uniforme + línea amarilla (mismo criterio que EBITDA)
   _ch('af-c-nieps', ch=>{
     ch.setOption({
       ..._base(years),
@@ -539,7 +542,8 @@ function _tabNegocio(container, tk, data, metrics) {
       legend:_leg(['Net Income','EPS'],{bottom:0}),
       series:[
         {name:'Net Income',type:'bar',yAxisIndex:0,barCategoryGap:'35%',
-          data:data.map((d,i)=>({value:d.net_income,itemStyle:{color:_signHist(d.net_income,i,n)}}))},
+          itemStyle:{borderRadius:2},
+          data:data.map((d,i)=>({value:d.net_income,itemStyle:{color:i===n-1?_GR:_GRS}}))},
         {name:'EPS',type:'line',yAxisIndex:1,data:data.map(d=>d.eps_diluted??null),
           connectNulls:false,smooth:false,symbol:'circle',symbolSize:4,
           lineStyle:{color:_YL,width:1.8},itemStyle:{color:_YL}},
