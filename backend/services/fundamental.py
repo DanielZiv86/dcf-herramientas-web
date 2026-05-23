@@ -1,8 +1,8 @@
 """Fundamental analysis service.
 
 Fuentes:
-- yfinance: financial statements (income, balance, cashflow) y price history — primario
-- Finnhub: profile, real-time quote, market metrics — suplementario
+- Finnhub /stock/financials-reported: financial statements anuales (XBRL) — primario, hasta 5 años
+- yfinance: financial statements fallback (4 años), price history y profile
 - JSON estático: backend/data/fundamental/tickers/{TICKER}.json — más rápido que API
 
 Espejo de fundamental/client.py + fundamental/calcs.py del proyecto Streamlit.
@@ -276,6 +276,227 @@ def _financials_yfinance_sync(ticker: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+# ── Finnhub: financial statements via XBRL (hasta 5 años) ───────────────────
+
+async def _financials_finnhub_async(ticker: str) -> pd.DataFrame:
+    """
+    Financial statements anuales desde Finnhub /stock/financials-reported (XBRL).
+    Retorna DataFrame en el mismo formato que _financials_yfinance_sync.
+    Valores en MILLONES USD; capex positivo.
+
+    Nota: Finnhub usa underscore como separador XBRL (us-gaap_Concept), no colon.
+    """
+    if not settings.finnhub_token:
+        return pd.DataFrame()
+
+    from_date = "2019-01-01"
+    to_date   = datetime.utcnow().strftime("%Y-%m-%d")
+
+    try:
+        params = {"symbol": ticker, "freq": "annual", "from": from_date, "to": to_date}
+        async with _finnhub_client() as c:
+            r = await c.get("/stock/financials-reported", params=params)
+            r.raise_for_status()
+            data = r.json()
+    except Exception as e:
+        logger.warning("[fund] Finnhub financials-reported %s: %s", ticker, e)
+        return pd.DataFrame()
+
+    # Solo reportes anuales (quarter=0)
+    reports = [r for r in data.get("data", []) if r.get("quarter") == 0]
+    if not reports:
+        logger.warning("[fund] Finnhub: no annual reports for %s", ticker)
+        return pd.DataFrame()
+
+    def _cv(items: list, *concepts) -> Optional[float]:
+        """Busca el primer concepto XBRL que coincide; ignora prefijo de namespace."""
+        idx: dict = {}
+        for item in items:
+            c = item.get("concept", "")
+            v = item.get("value")
+            if c and v is not None:
+                idx[c.lower()] = v
+        for c in concepts:
+            v = idx.get(c.lower())
+            if v is not None:
+                try:
+                    f = float(v)
+                    if f == f:  # no NaN
+                        return f
+                except Exception:
+                    pass
+        return None
+
+    rows = []
+    for rep in reports:
+        year = rep.get("year")
+        if not year:
+            try:
+                year = int(rep.get("filedDate", "")[:4])
+            except Exception:
+                continue
+
+        rpt = rep.get("report", {})
+        ic  = rpt.get("ic", [])
+        bs  = rpt.get("bs", [])
+        cf  = rpt.get("cf", [])
+
+        # Revenue — orden de preferencia por especificidad
+        rev = _cv(ic,
+            "us-gaap_RevenueFromContractWithCustomerExcludingAssessedTax",
+            "us-gaap_RevenueFromContractWithCustomerIncludingAssessedTax",
+            "us-gaap_Revenues",
+            "us-gaap_SalesRevenueNet",
+            "us-gaap_TotalRevenues",
+        )
+        gp = _cv(ic, "us-gaap_GrossProfit")
+        oi = _cv(ic, "us-gaap_OperatingIncomeLoss")
+        ni = _cv(ic,
+            "us-gaap_NetIncomeLoss",
+            "us-gaap_ProfitLoss",
+            "us-gaap_NetIncomeLossAttributableToParent",
+        )
+        # D&A: buscar en IC primero; fallback a CF donde aparece como ajuste al CFO
+        da = _cv(ic,
+            "us-gaap_DepreciationDepletionAndAmortization",
+            "us-gaap_DepreciationAndAmortization",
+        )
+        if da is None:
+            da = _cv(cf,
+                "us-gaap_DepreciationDepletionAndAmortization",
+                "us-gaap_DepreciationAndAmortization",
+                "us-gaap_DepreciationAmortizationAndAccretionNet",
+                # Suma de sub-conceptos: amortización de intangibles como proxy parcial
+                "us-gaap_AmortizationOfIntangibleAssets",
+            )
+        eps = _cv(ic,
+            "us-gaap_EarningsPerShareDiluted",
+            "us-gaap_EarningsPerShareBasicAndDiluted",
+            "us-gaap_EarningsPerShareBasic",
+        )
+        cfo = _cv(cf, "us-gaap_NetCashProvidedByUsedInOperatingActivities")
+        # Capex: Finnhub reporta pagos como positivos en CF
+        capex_raw = _cv(cf,
+            "us-gaap_PaymentsToAcquirePropertyPlantAndEquipment",
+            "us-gaap_PaymentsForCapitalImprovements",
+        )
+        capex_mm = capex_raw / 1e6 if capex_raw is not None else None
+
+        cash = _cv(bs,
+            "us-gaap_CashAndCashEquivalentsAtCarryingValue",
+            "us-gaap_CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+            "us-gaap_CashCashEquivalentsAndShortTermInvestments",
+        )
+        debt_lt = _cv(bs,
+            "us-gaap_LongTermDebtNoncurrent",
+            "us-gaap_LongTermDebt",
+            "us-gaap_LongTermDebtAndCapitalLeaseObligations",
+        )
+        debt_st = _cv(bs,
+            "us-gaap_LongTermDebtCurrent",
+            "us-gaap_ShortTermBorrowings",
+            "us-gaap_DebtCurrent",
+        )
+        equity = _cv(bs,
+            "us-gaap_StockholdersEquity",
+            "us-gaap_StockholdersEquityAttributableToParent",
+        )
+        total_assets = _cv(bs, "us-gaap_Assets")
+
+        row = {
+            "year":             int(year),
+            "end_date":         rep.get("filedDate", "")[:10],
+            "revenue":          _safe_float(rev, 1e6),
+            "gross_profit":     _safe_float(gp, 1e6),
+            "operating_income": _safe_float(oi, 1e6),
+            "net_income":       _safe_float(ni, 1e6),
+            "da":               _safe_float(da, 1e6),
+            "eps_diluted":      _nan_to_none(eps),
+            "cfo":              _safe_float(cfo, 1e6),
+            "capex":            capex_mm,
+            "cash":             _safe_float(cash, 1e6),
+            "debt_lt":          _safe_float(debt_lt, 1e6),
+            "debt_st":          _safe_float(debt_st, 1e6),
+            "equity":           _safe_float(equity, 1e6),
+            "total_assets":     _safe_float(total_assets, 1e6),
+        }
+        has_data = any(row[k] is not None for k in ("revenue", "net_income", "cfo", "total_assets"))
+        if has_data:
+            rows.append(row)
+
+    if not rows:
+        logger.warning("[fund] Finnhub: no rows parsed for %s", ticker)
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows).sort_values("year").drop_duplicates("year").reset_index(drop=True)
+    if "revenue" in df.columns:
+        df = df[df["revenue"].notna() & (df["revenue"].abs() > 0.001)]
+    df = df.tail(5).reset_index(drop=True)
+    logger.info("[fund] Finnhub financials %s: %d years %s", ticker, len(df), list(df["year"]))
+    return df
+
+
+def _finnhub_data_is_reliable(df: pd.DataFrame) -> bool:
+    """
+    Valida que el DataFrame de Finnhub sea usable como fuente primaria:
+    - ≥4 años de datos
+    - Sin gaps en ningún par de años consecutivos
+    - El año más reciente es ≥ 2024 (datos actualizados)
+    """
+    if df.empty:
+        return False
+    years = list(df["year"].dropna().astype(int))
+    if len(years) < 4:
+        return False
+    has_gap = any(years[i+1] - years[i] > 1 for i in range(len(years)-1))
+    if has_gap:
+        return False
+    return years[-1] >= 2024
+
+
+async def _fetch_financials_live(ticker: str) -> list[dict]:
+    """
+    Fetches financials desde API (Finnhub → yfinance), sin cache estático.
+    Usado por build_ticker_json para garantizar datos frescos.
+
+    Lógica de fuente:
+    - Finnhub primario: 5 años si los datos son completos y actualizados
+    - yfinance fallback: 4 años, siempre consecutivos — para issuers no-US, FY no-calendarios, etc.
+    - Si yfinance también falla, usa lo que haya en Finnhub como último recurso.
+    """
+    tkr = ticker.upper()
+
+    finnhub_df = pd.DataFrame()
+    if settings.finnhub_token:
+        try:
+            finnhub_df = await _financials_finnhub_async(tkr)
+        except Exception as e:
+            logger.warning("[fund] Finnhub financials %s: %s", tkr, e)
+
+    # Usar Finnhub solo si da ≥4 años consecutivos y datos actualizados
+    if _finnhub_data_is_reliable(finnhub_df):
+        logger.info("[fund] live financials %s via Finnhub: %d years", tkr, len(finnhub_df))
+        return _compute_derived(finnhub_df)
+
+    # yfinance fallback — siempre da años consecutivos (generalmente 4)
+    try:
+        yf_df = await asyncio.get_event_loop().run_in_executor(
+            _yf_pool, _financials_yfinance_sync, tkr
+        )
+        if not yf_df.empty:
+            logger.info("[fund] live financials %s via yfinance: %d years", tkr, len(yf_df))
+            return _compute_derived(yf_df)
+    except Exception as e:
+        logger.warning("[fund] yfinance financials %s: %s", tkr, e)
+
+    # Último recurso: Finnhub aunque sea incompleto
+    if not finnhub_df.empty:
+        logger.warning("[fund] live financials %s: usando Finnhub incompleto (%d años)", tkr, len(finnhub_df))
+        return _compute_derived(finnhub_df)
+
+    return []
+
+
 # ── yfinance: price history (velas semanales) ─────────────────────────────────
 
 def _candles_yfinance_sync(ticker: str, years: int = 5) -> dict:
@@ -412,6 +633,12 @@ def _compute_derived(df: pd.DataFrame) -> list[dict]:
 
     df = df.sort_values("year").reset_index(drop=True).copy()
 
+    # Convertir columnas numéricas a float64 (XBRL Finnhub puede entregar None como objeto)
+    numeric_cols = [c for c in df.columns if c not in ("end_date",)]
+    for col in numeric_cols:
+        if col in df.columns and df[col].dtype == object:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
     # Total debt = LT + ST (ambos en millones)
     if "debt_lt" in df.columns and "debt_st" in df.columns:
         df["total_debt"] = df["debt_lt"].fillna(0) + df["debt_st"].fillna(0)
@@ -455,14 +682,24 @@ def _compute_derived(df: pd.DataFrame) -> list[dict]:
             if col in df.columns:
                 df[out] = (df[col] / rev * 100).round(2)
 
-    # YoY growth (%)
+    # YoY growth (%) — solo para años estrictamente consecutivos (gap=1)
+    years_list = df["year"].tolist() if "year" in df.columns else []
     for col, out in [
         ("revenue",    "revenue_yoy"),
         ("net_income", "net_income_yoy"),
         ("fcf",        "fcf_yoy"),
     ]:
         if col in df.columns:
-            df[out] = (df[col].pct_change() * 100).round(1)
+            yoys = [None] * len(df)
+            for i in range(1, len(df)):
+                gap = (years_list[i] - years_list[i-1]) if len(years_list) > i else 2
+                if gap != 1:
+                    continue
+                prev = df[col].iloc[i-1]
+                curr = df[col].iloc[i]
+                if pd.notna(prev) and pd.notna(curr) and prev != 0:
+                    yoys[i] = round(float((curr - prev) / abs(prev) * 100), 1)
+            df[out] = yoys
 
     # Deuda / Equity
     if "equity" in df.columns and "total_debt" in df.columns:
@@ -653,17 +890,10 @@ async def get_financials(ticker: str) -> dict:
         logger.info("[fund] static cache hit: %s financials", tkr)
         return {"ticker": tkr, "data": static["financials"]}
 
-    # 2. yfinance (primario — no requiere API key, fiable para los 13 curados)
-    try:
-        df = await asyncio.get_event_loop().run_in_executor(
-            _yf_pool, _financials_yfinance_sync, tkr
-        )
-        if not df.empty:
-            records = _compute_derived(df)
-            logger.info("[fund] yfinance financials %s: %d rows", tkr, len(records))
-            return {"ticker": tkr, "data": records}
-    except Exception as e:
-        logger.warning("[fund] yfinance financials %s failed: %s", tkr, e)
+    # 2. API en vivo: Finnhub primario (5 años), yfinance fallback (4 años)
+    records = await _fetch_financials_live(tkr)
+    if records:
+        return {"ticker": tkr, "data": records}
 
     logger.warning("[fund] financials %s: no data from any source", tkr)
     return {"ticker": tkr, "data": []}
@@ -830,24 +1060,33 @@ def get_compare_summary() -> list[dict]:
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def build_ticker_json(ticker: str) -> dict:
-    """Genera y guarda el JSON completo de un ticker."""
+    """
+    Genera y guarda el JSON completo de un ticker.
+    Siempre fetchea datos frescos desde la API — no usa cache estático.
+    """
     tkr = ticker.upper()
     logger.info("[fund] building JSON for %s ...", tkr)
 
-    profile_full, fin, candles = await asyncio.gather(
-        get_full_profile(tkr),
-        get_financials(tkr),
-        get_candles(tkr),
+    # Fetch en paralelo — profile/quote/metrics van a Finnhub+yfinance directamente,
+    # financials va a Finnhub (5 años) con fallback a yfinance (4 años),
+    # candles va a yfinance (5 años).
+    profile, quote, metrics, fin_data, candles = await asyncio.gather(
+        get_profile(tkr),
+        get_quote(tkr),
+        get_metrics(tkr),
+        _fetch_financials_live(tkr),
+        asyncio.get_event_loop().run_in_executor(_yf_pool, _candles_yfinance_sync, tkr),
     )
 
+    cfg = TICKER_CONFIG.get(tkr, {})
     payload = {
         "ticker":      tkr,
-        "profile":     profile_full.get("profile", {}),
-        "quote":       profile_full.get("quote", {}),
-        "metrics":     profile_full.get("metrics", {}),
-        "description": profile_full.get("description", ""),
-        "tags":        profile_full.get("tags", []),
-        "financials":  fin.get("data", []),
+        "profile":     profile,
+        "quote":       quote,
+        "metrics":     metrics,
+        "description": cfg.get("description") or profile.get("description", ""),
+        "tags":        cfg.get("tags", []),
+        "financials":  fin_data,
         "candles":     candles,
     }
 
