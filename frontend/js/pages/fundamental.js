@@ -882,7 +882,8 @@ function _tabRentabilidad(container, tk, data, metrics) {
 
 
 /* ══════════════════════════════════════════════════════════════════════════
-   TAB: FINANCIERA
+   TAB: FINANCIERA — v2 benchmark-match
+   Misma estética que Negocio/Rentabilidad: _kpiN/_cPanelN/_nBaseN helpers.
    ══════════════════════════════════════════════════════════════════════════ */
 
 function _tabFinanciera(container, tk, data) {
@@ -892,90 +893,115 @@ function _tabFinanciera(container, tk, data) {
   const fy=`FY${String(last.year).slice(2)}`;
   const ncNeg=last.net_cash!=null&&last.net_cash<0;
 
+  // KPI colors exactos del benchmark
   const kpis=[
-    {l:'CASH & EQUIV.',v:_fmtM(last.cash),      s:fy,                  b:_yoy(last.cash,prev?.cash),  c:_CY},
-    {l:'DEUDA TOTAL',  v:_fmtM(last.total_debt), s:fy,                  b:null,                        c:_RE},
-    {l:'NET CASH',     v:_fmtM(last.net_cash),   s:ncNeg?'Net Debt':'Pos. neta',b:_yoy(last.net_cash,prev?.net_cash),c:ncNeg?_RE:_GR,neg:ncNeg},
-    {l:'TOTAL ASSETS', v:_fmtM(last.total_assets),s:fy,                 b:null,                        c:_VI},
-    {l:'EQUITY',       v:_fmtM(last.equity),     s:fy,                  b:null,                        c:_GR},
-    {l:'DEUDA/EQUITY', v:last.de_ratio!=null?`${last.de_ratio.toFixed(2)}x`:'—',s:'Leverage',b:null,  c:_YL},
-    {l:'FCF',          v:_fmtM(last.fcf),        s:_marg(last.fcf,last.revenue),b:null,               c:_OR,neg:last.fcf!=null&&last.fcf<0},
-    {l:'CAPEX',        v:last.capex!=null?_fmtM(last.capex):'—',        s:'Inversión',b:null,          c:'#4A5F75'},
+    {l:'CASH & EQUIV.',v:_fmtM(last.cash),       s:fy,                     b:_yoy(last.cash,prev?.cash),      c:'#22D3EE'},
+    {l:'DEUDA TOTAL',  v:_fmtM(last.total_debt),  s:fy,                     b:null,                            c:'#FB7185'},
+    {l:'NET CASH',     v:_fmtM(last.net_cash),    s:ncNeg?'Deuda neta':'Posicion positiva',
+                                                                              b:_yoy(last.net_cash,prev?.net_cash),c:ncNeg?'#FB7185':'#34D399'},
+    {l:'TOTAL ASSETS', v:_fmtM(last.total_assets),s:fy,                     b:_yoy(last.total_assets,prev?.total_assets),c:'#7C3AED'},
+    {l:'EQUITY',       v:_fmtM(last.equity),      s:fy,                     b:null,                            c:'#F59E0B'},
+    {l:'DEUDA/EQUITY', v:last.de_ratio!=null?`${last.de_ratio.toFixed(2)}x`:'—',s:'Leverage',b:null,           c:'#F472B6'},
+    {l:'FCF',          v:_fmtM(last.fcf),         s:_marg(last.fcf,last.revenue),b:null,                      c:'#34D399'},
+    {l:'CAPEX',        v:last.capex!=null?_fmtM(last.capex):'—',            s:'Inversion activos',b:null,      c:'#94A3B8'},
   ];
 
   const years=data.map(d=>`FY${String(d.year).slice(2)}`);
   const n=data.length;
 
+  // Sub-headlines: valor primero, luego label (formato benchmark: "$5.2B Cash")
+  const cashSub  = `${_fmtM(last.cash)} Cash`;
+  const ncSub    = `${_fmtM(last.net_cash)} Net Cash`;
+  const assetsSub= `${_fmtM(last.total_assets)} Assets`;
+  const fcfSub   = `${_fmtM(last.fcf)} FCF`;
+
   container.innerHTML=`
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-bottom:12px">
-      ${kpis.map(k=>_kpi(k.l,k.v,k.s,k.b,k.c,k.neg||false)).join('')}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:1rem">
+      ${kpis.map(k=>_kpiN(k.l,k.v,k.s,k.b,k.c,false)).join('')}
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      ${_cPanel('af-c-cashd','CASH vs DEUDA TOTAL',`Cash ${_fmtM(last.cash)}`)}
-      ${_cPanel('af-c-netc', 'NET CASH / NET DEBT', _fmtM(last.net_cash))}
-      ${_cPanel('af-c-aseq', 'ASSETS vs EQUITY',`Assets ${_fmtM(last.total_assets)}`)}
-      ${_cPanel('af-c-fcfcx','FCF vs CAPEX',`FCF ${_fmtM(last.fcf)}`)}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+      ${_cPanelN('af-c-cashd','CASH VS DEUDA TOTAL',  cashSub)}
+      ${_cPanelN('af-c-netc', 'NET CASH / DEUDA NETA', ncSub)}
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      ${_cPanelN('af-c-aseq', 'TOTAL ASSETS VS EQUITY',assetsSub)}
+      ${_cPanelN('af-c-fcfcx','FCF VS CAPEX',           fcfSub)}
     </div>`;
 
-  // Cash vs Deuda — barras agrupadas lado a lado
+  // Chart 1 — CASH VS DEUDA TOTAL: barras agrupadas · cyan / pink-red · 20% histórico
   _ch('af-c-cashd', ch=>{
     ch.setOption({
-      ..._base(years),
-      yAxis:[_yaxM()],
-      legend:_leg(['Cash','Deuda'],{bottom:0}),
+      ..._nBaseN(years),
+      yAxis:[_nYaxMN()],
+      legend:_nLegN(['Cash & Equiv.','Deuda Total']),
       series:[
-        {name:'Cash', type:'bar',barGap:'5%',barCategoryGap:'22%',
-          data:data.map((d,i)=>({value:d.cash,       itemStyle:{color:i===n-1?_CY:_CYS}}))},
-        {name:'Deuda',type:'bar',
-          data:data.map((d,i)=>({value:d.total_debt,  itemStyle:{color:i===n-1?_RE:_RES}}))},
+        {name:'Cash & Equiv.',type:'bar',barGap:'4%',barCategoryGap:'38%',
+          itemStyle:{borderRadius:[3,3,0,0]},
+          data:data.map((d,i)=>({value:d.cash??null,
+            itemStyle:{color:i===n-1?'#22D3EE':'rgba(34,211,238,.20)'}}))},
+        {name:'Deuda Total',  type:'bar',
+          itemStyle:{borderRadius:[3,3,0,0]},
+          data:data.map((d,i)=>({value:d.total_debt??null,
+            itemStyle:{color:i===n-1?'#FB7185':'rgba(251,113,133,.20)'}}))},
       ],
-      tooltip:{..._tt(),valueFormatter:v=>v!=null?`$${v.toFixed(0)}M`:'—'},
+      tooltip:{..._nTtN(),valueFormatter:v=>v!=null?`$${v.toFixed(0)}M`:'—'},
     });
   });
 
-  // Net Cash — verde positivo / rojo negativo
+  // Chart 2 — NET CASH / DEUDA NETA: barras simples · verde/rojo por signo · .65 opacity flat
   _ch('af-c-netc', ch=>{
     ch.setOption({
-      ..._base(years),
-      yAxis:[_yaxM()],
-      series:[{name:'Net Cash',type:'bar',
-        data:data.map((d,i)=>({value:d.net_cash,
-          itemStyle:{color:d.net_cash>=0?(i===n-1?_GR:_GRS):(i===n-1?_RE:_RES)}}))
+      ..._nBaseN(years),
+      yAxis:[_nYaxMN()],
+      series:[{name:'Net Cash',type:'bar',barCategoryGap:'45%',
+        itemStyle:{borderRadius:[3,3,0,0]},
+        data:data.map(d=>({value:d.net_cash??null,
+          itemStyle:{
+            color:(d.net_cash??0)>=0?'rgba(52,211,153,.65)':'rgba(248,113,113,.65)',
+            borderColor:(d.net_cash??0)>=0?'#34D399':'#F87171',
+          }}))
       }],
-      tooltip:{..._tt(),valueFormatter:v=>v!=null?`$${v.toFixed(0)}M`:'—'},
+      tooltip:{..._nTtN(),valueFormatter:v=>v!=null?`$${v.toFixed(0)}M`:'—'},
     });
   });
 
-  // Assets vs Equity — barras agrupadas
+  // Chart 3 — TOTAL ASSETS VS EQUITY: barras agrupadas · violeta / verde · 20% histórico
   _ch('af-c-aseq', ch=>{
     ch.setOption({
-      ..._base(years),
-      yAxis:[_yaxM()],
-      legend:_leg(['Assets','Equity'],{bottom:0}),
+      ..._nBaseN(years),
+      yAxis:[_nYaxMN()],
+      legend:_nLegN(['Total Assets','Equity']),
       series:[
-        {name:'Assets',type:'bar',barGap:'5%',barCategoryGap:'22%',
-          data:data.map((d,i)=>({value:d.total_assets,itemStyle:{color:i===n-1?_VI:_VIS}}))},
-        {name:'Equity',type:'bar',
-          data:data.map((d,i)=>({value:d.equity,       itemStyle:{color:i===n-1?_GR:_GRS}}))},
+        {name:'Total Assets',type:'bar',barGap:'4%',barCategoryGap:'38%',
+          itemStyle:{borderRadius:[3,3,0,0]},
+          data:data.map((d,i)=>({value:d.total_assets??null,
+            itemStyle:{color:i===n-1?'#7C3AED':'rgba(124,58,237,.20)'}}))},
+        {name:'Equity',      type:'bar',
+          itemStyle:{borderRadius:[3,3,0,0]},
+          data:data.map((d,i)=>({value:d.equity??null,
+            itemStyle:{color:i===n-1?'#34D399':'rgba(52,211,153,.20)'}}))},
       ],
-      tooltip:{..._tt(),valueFormatter:v=>v!=null?`$${v.toFixed(0)}M`:'—'},
+      tooltip:{..._nTtN(),valueFormatter:v=>v!=null?`$${v.toFixed(0)}M`:'—'},
     });
   });
 
-  // FCF vs Capex — barras agrupadas (capex negativo para mostrar salida de caja)
+  // Chart 4 — FCF VS CAPEX: FCF cyan · Capex valor absoluto amber · 20% histórico
   _ch('af-c-fcfcx', ch=>{
     ch.setOption({
-      ..._base(years),
-      yAxis:[_yaxM()],
-      legend:_leg(['FCF','Capex (salida)'],{bottom:0}),
+      ..._nBaseN(years),
+      yAxis:[_nYaxMN()],
+      legend:_nLegN(['FCF','Capex (abs)']),
       series:[
-        {name:'FCF',type:'bar',barGap:'5%',barCategoryGap:'22%',
-          data:data.map((d,i)=>({value:d.fcf,itemStyle:{color:i===n-1?_OR:_ORS}}))},
-        {name:'Capex (salida)',type:'bar',
-          data:data.map((d,i)=>({value:d.capex!=null?-d.capex:null,
-            itemStyle:{color:i===n-1?'rgba(74,95,117,.9)':'rgba(74,95,117,.35)'}}))},
+        {name:'FCF',       type:'bar',barGap:'4%',barCategoryGap:'38%',
+          itemStyle:{borderRadius:[3,3,0,0]},
+          data:data.map((d,i)=>({value:d.fcf??null,
+            itemStyle:{color:i===n-1?'#22D3EE':'rgba(34,211,238,.20)'}}))},
+        {name:'Capex (abs)',type:'bar',
+          itemStyle:{borderRadius:[3,3,0,0]},
+          data:data.map((d,i)=>({value:d.capex!=null?Math.abs(d.capex):null,
+            itemStyle:{color:i===n-1?'#F59E0B':'rgba(245,158,11,.20)'}}))},
       ],
-      tooltip:{..._tt(),valueFormatter:v=>v!=null?`$${v.toFixed(0)}M`:'—'},
+      tooltip:{..._nTtN(),valueFormatter:v=>v!=null?`$${v.toFixed(0)}M`:'—'},
     });
   });
 }
