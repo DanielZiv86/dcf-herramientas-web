@@ -1,4 +1,4 @@
-/* ─── Análisis Fundamental v4 — Visual refinement ───────────────────────────
+/* ─── Análisis Fundamental v5 — Rentabilidad benchmark-exact ────────────────
    Cambios v4:
    - _hist(i,n): binario 0.35/1.0 en lugar de degradé progresivo
    - barGap: '5%' (agrupadas lado a lado, sin superposición)
