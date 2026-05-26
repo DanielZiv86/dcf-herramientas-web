@@ -748,125 +748,136 @@ function _tabRentabilidad(container, tk, data, metrics) {
   if (!data.length) { container.innerHTML = _noData('Sin datos financieros'); return; }
   const last=data[data.length-1];
   const fy=`FY${String(last.year).slice(2)}`;
-  const roe=metrics.roe_ttm;
-  const roic=metrics.roic_ttm;
 
-  // Benchmark: colores fijos por concepto, sin lógica de signo en el borde de card
+  // KPI cards — colores fijos del benchmark
   const kpis=[
     {l:'FCF',          v:_fmtM(last.fcf),  s:_marg(last.fcf,last.revenue), b:last.fcf_yoy, c:'#22D3EE'},
     {l:'OP CASH FLOW', v:_fmtM(last.cfo),  s:fy,                            b:null,         c:'#7C3AED'},
     {l:'EBITDA MARGIN',v:last.ebitda_margin!=null?`${last.ebitda_margin.toFixed(1)}%`:'—',s:fy,b:null,c:'#34D399'},
     {l:'FCF MARGIN',   v:last.fcf_margin!=null?`${last.fcf_margin.toFixed(1)}%`:'—',s:fy,b:null,c:'#F59E0B'},
-    {l:'ROE TTM',      v:roe!=null?`${roe.toFixed(1)}%`:'—',s:'TTM',b:null,c:'#F472B6'},
-    {l:'ROIC TTM',     v:roic!=null?`${roic.toFixed(1)}%`:'—',s:'TTM',b:null,c:'#60A5FA'},
+    {l:'ROE TTM',      v:metrics.roe_ttm!=null?`${metrics.roe_ttm.toFixed(1)}%`:'—',s:'TTM',b:null,c:'#F472B6'},
+    {l:'ROIC TTM',     v:metrics.roic_ttm!=null?`${metrics.roic_ttm.toFixed(1)}%`:'—',s:'TTM',b:null,c:'#60A5FA'},
   ];
 
-  // Últimos 4 ejercicios disponibles
-  const d4  = data.slice(-4);
-  const n4  = d4.length;
-  const yrs = d4.map(d=>`FY${String(d.year).slice(2)}`);
+  // Últimos 5 ejercicios (igual al benchmark FY22-FY26)
+  const d5  = data.slice(-5);
+  const n5  = d5.length;
+  const yrs = d5.map(d=>`FY${String(d.year).slice(2)}`);
 
-  const lastGross = last.gross_margin!=null ? `Gross ${last.gross_margin.toFixed(1)}%` : '';
-  const lastFcfM  = last.fcf_margin!=null   ? `FCF ${last.fcf_margin.toFixed(1)}%`     : '';
+  // Métricas destacadas en header de cada chart (formato benchmark)
+  const opStr  = last.ebit_margin!=null   ? `${last.ebit_margin.toFixed(1)}% Op Margin` : '';
+  const fcfStr = last.fcf!=null           ? `${_fmtM(last.fcf)} FCF`                    : '';
+  const fcfmStr= last.fcf_margin!=null    ? `${last.fcf_margin.toFixed(1)}% FCF Margin` : '';
+
+  // ROE histórico para chart header — calculado desde datos anuales
+  const _roeVal = d => (d.net_income!=null && d.equity!=null && Math.abs(d.equity)>0.001)
+    ? +(d.net_income / d.equity * 100).toFixed(1) : null;
+  const lastRoeCalc = _roeVal(last);
+  const retStr = lastRoeCalc!=null ? `ROE ${lastRoeCalc.toFixed(1)}%` : '';
 
   container.innerHTML=`
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:1rem">
+    <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-bottom:1rem">
       ${kpis.map(k=>_kpiR(k.l,k.v,k.s,k.b,k.c)).join('')}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
-      ${_cPanelR('af-r-marg',  'MÁRGENES HISTÓRICOS',      lastGross, 200)}
-      ${_cPanelR('af-r-fcfcfo','FCF Y OP CASH FLOW',        '',       200)}
+      ${_cPanelR('af-r-marg',  'MÁRGENES',            opStr,  200)}
+      ${_cPanelR('af-r-fcfcfo','FREE CASH FLOW',       fcfStr, 200)}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      ${_cPanelR('af-r-ret',   'RETORNOS DE CAPITAL (TTM)', '',       190)}
-      ${_cPanelR('af-r-fcfm',  'FCF MARGIN',                lastFcfM, 190)}
+      ${_cPanelR('af-r-ret',   'RETORNOS CAPITAL',    retStr, 190)}
+      ${_cPanelR('af-r-fcfm',  'FCF VS PROFIT MARGIN',fcfmStr,190)}
     </div>`;
 
-  // Chart 1: Márgenes — 5 líneas smooth · benchmark colors · últimos 4 períodos
+  // Chart 1 — MÁRGENES: Gross(cyan sólido) · EBITDA(violeta dash) · Operating(pink dash) · Net(verde dash)
   _ch('af-r-marg', ch=>{
     ch.setOption({
       ..._nBaseN(yrs),
       yAxis:[_nYaxPctN()],
-      legend:_nLegN(['Gross','EBIT','EBITDA','Net','FCF']),
+      legend:_nLegN(['Gross','EBITDA','Operating','Net']),
       series:[
-        {name:'Gross', type:'line',data:d4.map(d=>d.gross_margin??null), connectNulls:false,smooth:true,symbol:'circle',symbolSize:3,lineStyle:{color:'#22D3EE',width:2},itemStyle:{color:'#22D3EE'}},
-        {name:'EBIT',  type:'line',data:d4.map(d=>d.ebit_margin??null),  connectNulls:false,smooth:true,symbol:'circle',symbolSize:3,lineStyle:{color:'#60A5FA',width:2,type:'dashed'},itemStyle:{color:'#60A5FA'}},
-        {name:'EBITDA',type:'line',data:d4.map(d=>d.ebitda_margin??null),connectNulls:false,smooth:true,symbol:'circle',symbolSize:3,lineStyle:{color:'#7C3AED',width:2,type:'dashed'},itemStyle:{color:'#7C3AED'}},
-        {name:'Net',   type:'line',data:d4.map(d=>d.net_margin??null),   connectNulls:false,smooth:true,symbol:'circle',symbolSize:3,lineStyle:{color:'#34D399',width:2,type:'dashed'},itemStyle:{color:'#34D399'}},
-        {name:'FCF',   type:'line',data:d4.map(d=>d.fcf_margin??null),   connectNulls:false,smooth:true,symbol:'circle',symbolSize:3,lineStyle:{color:'#F59E0B',width:2},itemStyle:{color:'#F59E0B'}},
-      ],
-      tooltip:{..._nTtN(),valueFormatter:v=>v!=null?`${v.toFixed(1)}%`:'—'},
-    });
-  });
-
-  // Chart 2: FCF cyan + Op Cash Flow violeta — barras agrupadas · 20% opacity histórico
-  _ch('af-r-fcfcfo', ch=>{
-    ch.setOption({
-      ..._nBaseN(yrs),
-      yAxis:[_nYaxMN()],
-      legend:_nLegN(['FCF','Op Cash Flow']),
-      series:[
-        {name:'FCF',         type:'bar',barGap:'4%',barCategoryGap:'38%',
-          itemStyle:{borderRadius:[3,3,0,0]},
-          data:d4.map((d,i)=>({value:d.fcf??null,
-            itemStyle:{color:i===n4-1?'#22D3EE':'rgba(34,211,238,.20)'}}))},
-        {name:'Op Cash Flow',type:'bar',
-          itemStyle:{borderRadius:[3,3,0,0]},
-          data:d4.map((d,i)=>({value:d.cfo??null,
-            itemStyle:{color:i===n4-1?'#7C3AED':'rgba(124,58,237,.20)'}}))},
-      ],
-      tooltip:{..._nTtN(),valueFormatter:v=>v!=null?`$${v.toFixed(0)}M`:'—'},
-    });
-  });
-
-  // Chart 3: Retornos de Capital — barras horizontales · foto TTM
-  // Orden visual top→bottom: ROE · ROA · Gross Margin · EBITDA Margin · Net Margin
-  // ECharts category: primer ítem = bottom → orden inverso
-  _ch('af-r-ret', ch=>{
-    const pool=[
-      {l:'Net Margin',   v:last.net_margin,   c:(last.net_margin??0)>=0?'#34D399':'#F87171'},
-      {l:'EBITDA Margin',v:last.ebitda_margin,c:(last.ebitda_margin??0)>=0?'#7C3AED':'#F87171'},
-      {l:'Gross Margin', v:last.gross_margin, c:'#22D3EE'},
-      {l:'ROA',          v:metrics.roa_ttm,   c:(metrics.roa_ttm??0)>=0?'#60A5FA':'#F87171'},
-      {l:'ROE',          v:metrics.roe_ttm,   c:(metrics.roe_ttm??0)>=0?'#22D3EE':'#F87171'},
-    ].filter(m=>m.v!=null);
-    ch.setOption({
-      grid:{left:12,right:48,top:8,bottom:8,containLabel:true},
-      xAxis:{type:'value',
-        axisLabel:{color:'#94A3B8',fontFamily:_MONO,fontSize:9,formatter:v=>`${v.toFixed(0)}%`},
-        splitLine:{lineStyle:{color:'rgba(30,41,59,.7)',type:'solid'}},
-        axisLine:{show:false},axisTick:{show:false}},
-      yAxis:{type:'category',data:pool.map(m=>m.l),
-        axisLabel:{color:'#94A3B8',fontFamily:_MONO,fontSize:9},
-        axisLine:{lineStyle:{color:'rgba(42,51,80,.9)'}},splitLine:{show:false},axisTick:{show:false}},
-      series:[{type:'bar',barMaxWidth:16,
-        data:pool.map(m=>({value:m.v,itemStyle:{color:m.c,borderRadius:2}})),
-        label:{show:true,position:'right',color:'#94A3B8',fontFamily:_MONO,fontSize:9,
-          formatter:p=>p.value!=null?`${Number(p.value).toFixed(1)}%`:'—'}}],
-      tooltip:{..._nTtN(),valueFormatter:v=>`${Number(v).toFixed(1)}%`},
-      backgroundColor:'transparent',
-    });
-  },!([last.net_margin,last.ebitda_margin,last.gross_margin,
-       metrics.roa_ttm,metrics.roe_ttm].some(v=>v!=null)));
-
-  // Chart 4: FCF Margin (naranja + fill .10) + Net Margin (verde punteado)
-  _ch('af-r-fcfm', ch=>{
-    ch.setOption({
-      ..._nBaseN(yrs),
-      yAxis:[_nYaxPctN()],
-      legend:_nLegN(['FCF Margin','Net Margin']),
-      series:[
-        {name:'FCF Margin',type:'line',data:d4.map(d=>d.fcf_margin??null),
+        {name:'Gross',     type:'line',data:d5.map(d=>d.gross_margin??null),
           connectNulls:false,smooth:true,symbol:'circle',symbolSize:3,
-          lineStyle:{color:'#F59E0B',width:2},itemStyle:{color:'#F59E0B'},
-          areaStyle:{color:'rgba(245,158,11,.10)'}},
-        {name:'Net Margin',type:'line',data:d4.map(d=>d.net_margin??null),
+          lineStyle:{color:'#22D3EE',width:2},itemStyle:{color:'#22D3EE'}},
+        {name:'EBITDA',    type:'line',data:d5.map(d=>d.ebitda_margin??null),
+          connectNulls:false,smooth:true,symbol:'circle',symbolSize:3,
+          lineStyle:{color:'#7C3AED',width:2,type:'dashed'},itemStyle:{color:'#7C3AED'}},
+        {name:'Operating', type:'line',data:d5.map(d=>d.ebit_margin??null),
+          connectNulls:false,smooth:true,symbol:'circle',symbolSize:3,
+          lineStyle:{color:'#F472B6',width:2,type:'dashed'},itemStyle:{color:'#F472B6'}},
+        {name:'Net',       type:'line',data:d5.map(d=>d.net_margin??null),
           connectNulls:false,smooth:true,symbol:'circle',symbolSize:3,
           lineStyle:{color:'#34D399',width:2,type:'dashed'},itemStyle:{color:'#34D399'}},
       ],
       tooltip:{..._nTtN(),valueFormatter:v=>v!=null?`${v.toFixed(1)}%`:'—'},
     });
-  },!d4.some(d=>d.fcf_margin!=null));
+  });
+
+  // Chart 2 — FREE CASH FLOW: FCF barras cyan · OCF línea violeta (benchmark combo)
+  _ch('af-r-fcfcfo', ch=>{
+    ch.setOption({
+      ..._nBaseN(yrs),
+      yAxis:[_nYaxMN()],
+      legend:_nLegN(['FCF (barras)','OCF (línea)']),
+      series:[
+        {name:'FCF (barras)', type:'bar',barCategoryGap:'40%',
+          itemStyle:{borderRadius:[3,3,0,0]},
+          data:d5.map((d,i)=>({value:d.fcf??null,
+            itemStyle:{color:i===n5-1?'#22D3EE':'rgba(34,211,238,.20)'}}))},
+        {name:'OCF (línea)',  type:'line',
+          connectNulls:false,smooth:true,symbol:'circle',symbolSize:3,
+          lineStyle:{color:'#7C3AED',width:2},itemStyle:{color:'#7C3AED'},
+          data:d5.map(d=>d.cfo??null)},
+      ],
+      tooltip:{..._nTtN(),valueFormatter:v=>v!=null?`$${v.toFixed(0)}M`:'—'},
+    });
+  });
+
+  // Chart 3 — RETORNOS CAPITAL: líneas históricas ROE(cyan) · ROA(violeta dash) · ROIC(pink dash)
+  _ch('af-r-ret', ch=>{
+    const safeDiv = (a, b) => (a!=null && b!=null && Math.abs(b)>0.001) ? +(a/b*100).toFixed(1) : null;
+    const roeArr  = d5.map(d => safeDiv(d.net_income, d.equity));
+    const roaArr  = d5.map(d => safeDiv(d.net_income, d.total_assets));
+    const roicArr = d5.map(d => {
+      const ic = (d.equity??0) + (d.total_debt??0);
+      return safeDiv(d.net_income, ic > 0.001 ? ic : null);
+    });
+    const hasAny = [...roeArr,...roaArr,...roicArr].some(v=>v!=null);
+    ch.setOption({
+      ..._nBaseN(yrs),
+      yAxis:[_nYaxPctN()],
+      legend:_nLegN(['ROE','ROA','ROIC']),
+      series:[
+        {name:'ROE',  type:'line',data:roeArr,  connectNulls:false,smooth:true,symbol:'circle',symbolSize:3,
+          lineStyle:{color:'#22D3EE',width:2},            itemStyle:{color:'#22D3EE'}},
+        {name:'ROA',  type:'line',data:roaArr,  connectNulls:false,smooth:true,symbol:'circle',symbolSize:3,
+          lineStyle:{color:'#7C3AED',width:2,type:'dashed'},itemStyle:{color:'#7C3AED'}},
+        {name:'ROIC', type:'line',data:roicArr, connectNulls:false,smooth:true,symbol:'circle',symbolSize:3,
+          lineStyle:{color:'#F472B6',width:2,type:'dashed'},itemStyle:{color:'#F472B6'}},
+      ],
+      tooltip:{..._nTtN(),valueFormatter:v=>v!=null?`${Number(v).toFixed(1)}%`:'—'},
+    });
+    if (!hasAny) ch.setOption({graphic:[{type:'text',left:'center',top:'middle',
+      style:{text:'Sin datos disponibles',fill:'#94A3B8',fontSize:11,fontFamily:_MONO}}]});
+  });
+
+  // Chart 4 — FCF VS PROFIT MARGIN: FCF Margin cyan+fill · Profit Margin violeta dash
+  _ch('af-r-fcfm', ch=>{
+    ch.setOption({
+      ..._nBaseN(yrs),
+      yAxis:[_nYaxPctN()],
+      legend:_nLegN(['FCF Margin','Profit Margin']),
+      series:[
+        {name:'FCF Margin',   type:'line',data:d5.map(d=>d.fcf_margin??null),
+          connectNulls:false,smooth:true,symbol:'circle',symbolSize:3,
+          lineStyle:{color:'#22D3EE',width:2},itemStyle:{color:'#22D3EE'},
+          areaStyle:{color:'rgba(34,211,238,.10)'}},
+        {name:'Profit Margin',type:'line',data:d5.map(d=>d.net_margin??null),
+          connectNulls:false,smooth:true,symbol:'circle',symbolSize:3,
+          lineStyle:{color:'#7C3AED',width:2,type:'dashed'},itemStyle:{color:'#7C3AED'}},
+      ],
+      tooltip:{..._nTtN(),valueFormatter:v=>v!=null?`${v.toFixed(1)}%`:'—'},
+    });
+  },!d5.some(d=>d.fcf_margin!=null));
 }
 
 
