@@ -557,6 +557,34 @@ function _nTtN(){
     axisPointer:{lineStyle:{color:'rgba(42,51,80,.5)'}}};
 }
 
+// Y-axis múltiplos (x format, dark gridlines benchmark)
+function _nYaxXN(){
+  return{type:'value',
+    axisLabel:{color:'#94A3B8',fontFamily:_MONO,fontSize:9,formatter:v=>`${v.toFixed(0)}x`},
+    splitLine:{lineStyle:{color:'rgba(30,41,59,.7)',type:'solid'}},
+    axisLine:{show:false},axisTick:{show:false}};
+}
+
+// Y-axis billones ($B format, dark gridlines benchmark)
+function _nYaxBN(){
+  return{type:'value',
+    axisLabel:{color:'#94A3B8',fontFamily:_MONO,fontSize:9,formatter:v=>`$${v.toFixed(0)}B`},
+    splitLine:{lineStyle:{color:'rgba(30,41,59,.7)',type:'solid'}},
+    axisLine:{show:false},axisTick:{show:false}};
+}
+
+// Cierre anual: precio más cercano al 31-dic de cada año fiscal
+function _buildAnnualPriceSeries(candles,years){
+  if(!candles?.dates?.length||!years?.length)return years.map(()=>null);
+  const cT=candles.dates.map(d=>new Date(d).getTime());
+  return years.map(yr=>{
+    const fyE=new Date(yr,11,31).getTime();
+    let b=0,bD=Infinity;
+    cT.forEach((t,i)=>{const diff=Math.abs(t-fyE);if(diff<bD){bD=diff;b=i;}});
+    return candles.closes[b]!=null?+Number(candles.closes[b]).toFixed(2):null;
+  });
+}
+
 /* ── Tab Negocio ─────────────────────────────────────────────────────────── */
 
 function _tabNegocio(container, tk, data, metrics) {
@@ -1008,183 +1036,188 @@ function _tabFinanciera(container, tk, data) {
 
 
 /* ══════════════════════════════════════════════════════════════════════════
-   TAB: VALUACIÓN
+   TAB: VALUACIÓN — v2 benchmark-match
    ══════════════════════════════════════════════════════════════════════════ */
 
 function _tabValuacion(container, tk, data, metrics, profile, candles) {
-  const last   = data.length?data[data.length-1]:null;
-  const mcapM  = profile.market_cap;
-  const shares = profile.shares;
-  const mcapUSD= mcapM?mcapM*1e6:null;
-  const netCash= last?.net_cash;
-  const evM    = metrics.enterprise_value_m;
-  const evUSD  = evM?evM*1e6:((mcapUSD!=null&&netCash!=null)?mcapUSD-(netCash*1e6):mcapUSD);
-  const pe     = metrics.pe_ttm;
-  const peF    = metrics.pe_forward;
-  const ps     = metrics.ps_ttm;
-  const pb     = metrics.pb_annual;
-  const evEbit = metrics.ev_ebitda_ttm;
-  const evSales= metrics.ev_sales_ttm;
-  const pfcf   = (mcapM&&metrics.fcf_ttm_m&&metrics.fcf_ttm_m>0)?mcapM/metrics.fcf_ttm_m:null;
-  const _mF    = v=>{if(v==null)return'—';return Math.abs(v)>999?'N/A¹':`${Number(v).toFixed(1)}x`;};
-  const target = metrics.target_price;
-  const upside = metrics.upside;
-  const rec    = metrics.recommendation;
+  const mcapM   = profile.market_cap;          // millones USD
+  const shares  = profile.shares;              // millones de acciones
+  const mcapUSD = mcapM ? mcapM*1e6 : null;
+  const last    = data.length ? data[data.length-1] : null;
+  const evM     = metrics.enterprise_value_m;
+  const evUSD   = evM ? evM*1e6 : (mcapUSD!=null&&last?.net_cash!=null ? mcapUSD-(last.net_cash*1e6) : mcapUSD);
 
+  // Múltiplos TTM
+  const pe      = metrics.pe_ttm;
+  const ps      = metrics.ps_ttm;
+  const pb      = metrics.pb_annual;
+  const evEbit  = metrics.ev_ebitda_ttm;
+  const evSales = metrics.ev_sales_ttm;
+  const pfcf    = (mcapM&&metrics.fcf_ttm_m&&metrics.fcf_ttm_m>0) ? mcapM/metrics.fcf_ttm_m : null;
+  const _mF     = v => { if(v==null)return'—'; return Math.abs(v)>999?'N/A¹':`${Number(v).toFixed(1)}x`; };
+
+  // KPI cards — etiquetas exactas del benchmark, sin CONSENSO ANALISTAS
   const kpis=[
-    {l:'MARKET CAP',v:mcapUSD!=null?_fmtB(mcapUSD):'—',s:'',b:null,c:_CY},
-    {l:'EV',        v:evUSD!=null?_fmtB(evUSD):'—',      s:'',b:null,c:_VI},
-    {l:'P/E TTM',   v:_mF(pe),  s:peF?`Fwd ${_mF(peF)}`:'',b:null,c:'#C8D8E8'},
-    {l:'EV/EBITDA', v:_mF(evEbit),s:'',b:null,c:'#C8D8E8'},
-    {l:'P/FCF',     v:_mF(pfcf),  s:'',b:null,c:'#C8D8E8'},
-    {l:'P/S TTM',   v:_mF(ps),    s:'',b:null,c:'#C8D8E8'},
+    {l:'MARKET CAP', v:mcapUSD!=null?_fmtB(mcapUSD):'—', s:'', c:'#22D3EE'},
+    {l:'EV',         v:evUSD!=null?_fmtB(evUSD):'—',     s:'', c:'#7C3AED'},
+    {l:'P/E',        v:_mF(pe),                           s:'', c:'#94A3B8'},
+    {l:'EV/EBITDA',  v:_mF(evEbit),                       s:'', c:'#94A3B8'},
+    {l:'P/FCF',      v:_mF(pfcf),                         s:'', c:'#94A3B8'},
+    {l:'P/S',        v:_mF(ps),                           s:'', c:'#94A3B8'},
   ];
 
-  const histPeAvg=_histAvg(data,mcapUSD,'net_income');
-  const histPsAvg=_histAvg(data,mcapUSD,'revenue');
-  const multCards=[
-    {l:'P/E',       v:pe,      avg:histPeAvg},
-    {l:'P/S',       v:ps,      avg:histPsAvg},
-    {l:'P/B',       v:pb,      avg:null},
-    {l:'P/FCF',     v:pfcf,    avg:null},
-    {l:'EV/Sales',  v:evSales, avg:null},
-    {l:'EV/EBITDA', v:evEbit,  avg:null},
-  ].map(({l,v,avg})=>{
+  // 5 períodos FY22-FY26
+  const d5   = data.slice(-5);
+  const n5   = d5.length;
+  const yrs5 = d5.map(d=>`FY${String(d.year).slice(2)}`);
+
+  // Múltiplos históricos reales (precio fiscal × shares) + extensión pb/ev_ebitda/ev_sales
+  const hist5 = _computeHistMult(d5, candles, shares);
+  const histEx = hist5.map((h,i)=>{
+    const d  = d5[i];
+    const hev= h.hist_mcap ? h.hist_mcap-(d.net_cash??0)*1e6 : null;
+    return{...h,
+      pb:       (h.hist_mcap&&d.equity&&d.equity>0)        ? h.hist_mcap/(d.equity*1e6)     : null,
+      ev_ebitda:(hev&&d.ebitda_est&&d.ebitda_est>0)         ? hev/(d.ebitda_est*1e6)         : null,
+      ev_sales: (hev&&d.revenue&&d.revenue>0)               ? hev/(d.revenue*1e6)            : null,
+    };
+  });
+
+  const peH     = histEx.map(h=>h.pe&&h.pe<400                  ? +h.pe.toFixed(1)       : null);
+  const psH     = histEx.map(h=>h.ps&&h.ps<400                  ? +h.ps.toFixed(1)       : null);
+  const pfH     = histEx.map(h=>h.pfcf&&h.pfcf<800              ? +h.pfcf.toFixed(1)     : null);
+  const pbH     = histEx.map(h=>h.pb&&h.pb<200                  ? +h.pb.toFixed(1)       : null);
+  const evEbitH = histEx.map(h=>h.ev_ebitda&&h.ev_ebitda<400    ? +h.ev_ebitda.toFixed(1): null);
+  const evSlsH  = histEx.map(h=>h.ev_sales&&h.ev_sales<400      ? +h.ev_sales.toFixed(1) : null);
+  const mcapH   = histEx.map(h=>h.hist_mcap                     ? +(h.hist_mcap/1e9).toFixed(1) : null);
+  const evH     = histEx.map((h,i)=>{
+    if(!h.hist_mcap)return null;
+    return +((h.hist_mcap-(d5[i]?.net_cash??0)*1e6)/1e9).toFixed(1);
+  });
+
+  // Promedio histórico de cada múltiplo desde precios reales
+  const _avg5 = arr=>{ const v=arr.filter(x=>x!=null&&isFinite(x)); return v.length?v.reduce((a,b)=>a+b,0)/v.length:null; };
+
+  // Cards múltiplos — 2 filas de 3: P/E | EV/EBITDA | P/S / P/B | P/FCF | EV/SALES
+  const multDefs=[
+    {l:'P/E',      v:pe,      avg:_avg5(peH)},
+    {l:'EV/EBITDA',v:evEbit,  avg:_avg5(evEbitH)},
+    {l:'P/S',      v:ps,      avg:_avg5(psH)},
+    {l:'P/B',      v:pb,      avg:_avg5(pbH)},
+    {l:'P/FCF',    v:pfcf,    avg:_avg5(pfH)},
+    {l:'EV/SALES', v:evSales, avg:_avg5(evSlsH)},
+  ];
+
+  const multCards=multDefs.map(({l,v,avg})=>{
     const isNa=v!=null&&Math.abs(v)>999;
-    const str=isNa?'N/A':(v!=null?`${v.toFixed(1)}x`:'—');
-    let comp=`<span style="color:#2D4157;font-size:.60rem;font-family:${_MONO}">Sin histórico</span>`;
+    const str =isNa?'N/A':(v!=null?`${v.toFixed(1)}x`:'—');
+    let comp  =`<span style="color:#94A3B8;font-size:.60rem;font-family:${_MONO}">N/D</span>`;
     if(!isNa&&v!=null&&avg!=null&&avg>0){
       const diff=(v-avg)/avg*100;
-      const col=diff>0?_OR:_GR;
-      const arr=diff>0?'▲':'▼';
-      comp=`<span style="color:${col};font-size:.60rem;font-weight:600;font-family:${_MONO}">
-        ${arr} ${Math.abs(diff).toFixed(1)}% vs hist (${avg.toFixed(1)}x)</span>`;
+      const col =diff>0?'#F59E0B':'#34D399';
+      const arr =diff>0?'▲':'▼';
+      comp=`<span style="color:${col};font-size:.60rem;font-weight:600;font-family:${_MONO}">${arr} ${Math.abs(diff).toFixed(1)}% vs hist (${avg.toFixed(1)}x)</span>`;
     }
-    return `<div style="flex:1;min-width:110px;background:#0B1220;border:1px solid ${_BOR};
-      border-radius:8px;padding:10px 12px">
-      <div style="font-size:.55rem;font-weight:700;letter-spacing:.10em;text-transform:uppercase;
-        color:#2D4157;margin-bottom:4px;font-family:${_MONO}">${l}</div>
-      <div style="font-size:1.20rem;font-weight:700;color:#F4F7FB;font-family:${_MONO}">${str}</div>
+    return `<div style="background:#12182B;border:1px solid #2A3350;border-radius:12px;padding:10px 12px;box-sizing:border-box">
+      <div style="font-size:9px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#94A3B8;margin-bottom:4px;font-family:${_MONO}">${l}</div>
+      <div style="font-size:1.05rem;font-weight:700;color:#F8FAFC;font-family:${_MONO}">${str}</div>
       <div style="margin-top:3px">${comp}</div>
     </div>`;
   });
 
-  const hasCandles=candles?.status==='ok'&&candles?.dates?.length>0;
-  const lastPxStr=hasCandles?`${candles.dates.at(-1)?.slice(0,10)} · $${candles.closes.at(-1)?.toFixed(2)}`:'';
+  // Serie anual de precio (cierre al 31-dic de cada FY)
+  const annualPx = _buildAnnualPriceSeries(candles, d5.map(d=>d.year));
+  const pxLast   = annualPx.filter(v=>v!=null).at(-1);
 
-  const years=data.map(d=>`FY${String(d.year).slice(2)}`);
-  const n=data.length;
-  const hist=_computeHistMult(data,candles,shares);
+  // Sub-headers de charts (formato benchmark: valor primero)
+  const peSub   = `P/E ${_mF(pe)}`;
+  const psSub   = `P/S ${_mF(ps)}`;
+  const mcapSub = mcapUSD!=null ? `${_fmtB(mcapUSD)} Mkt Cap` : '';
+  const pxSub   = pxLast!=null  ? `$${pxLast.toFixed(2)}`    : '';
 
   container.innerHTML=`
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-bottom:12px">
-      ${kpis.map(k=>_kpi(k.l,k.v,k.s,k.b,k.c)).join('')}
+    <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-bottom:1rem">
+      ${kpis.map(k=>_kpiN(k.l,k.v,k.s,null,k.c)).join('')}
     </div>
 
-    ${(target!=null||rec)?`<div style="background:${_CARD};border:1px solid ${_BOR};border-radius:9px;
-      padding:12px 16px;margin-bottom:12px">
-      <div style="font-size:.55rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-        color:#2D4157;margin-bottom:9px;font-family:${_MONO}">CONSENSO ANALISTAS</div>
-      <div style="display:flex;gap:20px;flex-wrap:wrap">
-        ${target!=null?`<div>
-          <div style="font-size:.55rem;text-transform:uppercase;letter-spacing:.09em;color:#2D4157;margin-bottom:2px;font-family:${_MONO}">PRECIO TARGET</div>
-          <div style="font-size:1.20rem;font-weight:700;color:${_G};font-family:${_MONO}">$${Number(target).toFixed(2)}</div>
-        </div>`:''}
-        ${upside!=null?`<div>
-          <div style="font-size:.55rem;text-transform:uppercase;letter-spacing:.09em;color:#2D4157;margin-bottom:2px;font-family:${_MONO}">UPSIDE POTENCIAL</div>
-          <div style="font-size:1.20rem;font-weight:700;color:${upside>=0?_GR:_RE};font-family:${_MONO}">${upside>=0?'+':''}${upside.toFixed(1)}%</div>
-        </div>`:''}
-        ${rec?`<div>
-          <div style="font-size:.55rem;text-transform:uppercase;letter-spacing:.09em;color:#2D4157;margin-bottom:2px;font-family:${_MONO}">RECOMENDACIÓN</div>
-          <div style="font-size:.88rem;font-weight:700;color:#C8D8E8;text-transform:uppercase;font-family:${_MONO}">${rec.replace(/_/g,' ')}${metrics.num_analysts?` <span style="color:#2D4157;font-size:.62rem">(${metrics.num_analysts})</span>`:''}</div>
-        </div>`:''}
-      </div>
-    </div>`:''}
-
-    <div style="font-size:.55rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-      color:#2D4157;margin-bottom:7px;font-family:${_MONO}">MÚLTIPLOS VS PROMEDIO HISTÓRICO</div>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">${multCards.join('')}</div>
+    <div style="display:flex;align-items:center;gap:6px;margin:4px 0 10px">
+      <span style="width:6px;height:6px;border-radius:50%;background:#22D3EE;display:inline-block;flex-shrink:0"></span>
+      <span style="font-size:9px;font-weight:700;letter-spacing:.10em;text-transform:uppercase;color:#94A3B8;font-family:${_MONO}">MULTIPLES VS HISTORICO</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
+      ${multCards.join('')}
+    </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      ${_cPanel('af-c-pe',   'P/E HISTÓRICO',pe?`P/E ${_mF(pe)}`:'')}
-      ${_cPanel('af-c-pspf', 'P/S y P/FCF HISTÓRICO',ps?`P/S ${_mF(ps)}`:'')}
-      ${_cPanel('af-c-mcap', 'MARKET CAP + EV',mcapUSD?_fmtB(mcapUSD):'')}
-      ${_cPanel('af-c-px',   'PRECIO HISTÓRICO (SEMANAL)',lastPxStr)}
+      ${_cPanelN('af-c-pe',   'P/E VS EV/EBITDA',    peSub)}
+      ${_cPanelN('af-c-pspf', 'P/S Y P/FCF',          psSub)}
+      ${_cPanelN('af-c-mcap', 'MARKET CAP Y EV ($B)', mcapSub)}
+      ${_cPanelN('af-c-px',   'PRECIO HISTÓRICO',      pxSub)}
     </div>
-    ${evEbit!=null&&Math.abs(evEbit)>999?`<div style="font-family:${_MONO};font-size:.58rem;
-      color:#2D4157;margin-top:6px">¹ EV/EBITDA no aplica cuando EBITDA estimado es negativo.</div>`:''}`;
+    ${evEbit!=null&&Math.abs(evEbit)>999?`<div style="font-family:${_MONO};font-size:.58rem;color:#4A5F75;margin-top:6px">¹ EV/EBITDA no aplica cuando EBITDA estimado es negativo.</div>`:''}`;
 
-  // P/E histórico
-  const peH=hist.map(h=>(h.pe&&h.pe>0&&h.pe<400)?h.pe:null);
+  // Chart 1 — P/E VS EV/EBITDA: líneas cyan + violeta punteada · nunca "sin datos"
   _ch('af-c-pe', ch=>{
     ch.setOption({
-      ..._base(years),yAxis:[_yaxX()],
-      series:[{name:'P/E',type:'line',data:peH,smooth:false,symbol:'circle',symbolSize:5,
-        lineStyle:{color:_CY,width:2},itemStyle:{color:_CY}}],
-      tooltip:{..._tt(),valueFormatter:v=>v!=null?`${v.toFixed(1)}x`:'—'},
+      ..._nBaseN(yrs5),
+      yAxis:[_nYaxXN()],
+      legend:_nLegN(['P/E','EV/EBITDA']),
+      series:[
+        {name:'P/E',       type:'line',data:peH,     ..._ls('#22D3EE'),  smooth:false},
+        {name:'EV/EBITDA', type:'line',data:evEbitH, ..._ls2('#7C3AED'), smooth:false},
+      ],
+      tooltip:{..._nTtN(),valueFormatter:v=>v!=null?`${v.toFixed(1)}x`:'—'},
     });
-  },!peH.some(v=>v!=null));
+  }, false);
 
-  // P/S y P/FCF
-  const psH=hist.map(h=>(h.ps&&h.ps<400)?h.ps:null);
-  const pfH=hist.map(h=>(h.pfcf&&h.pfcf<800)?h.pfcf:null);
+  // Chart 2 — P/S Y P/FCF: P/S cyan sólida · P/FCF violeta punteada
   _ch('af-c-pspf', ch=>{
     ch.setOption({
-      ..._base(years),yAxis:[_yaxX()],
-      legend:_leg(['P/S','P/FCF'],{bottom:0}),
+      ..._nBaseN(yrs5),
+      yAxis:[_nYaxXN()],
+      legend:_nLegN(['P/S','P/FCF']),
       series:[
-        {name:'P/S',  type:'line',data:psH,  ..._ls(_CY)},
-        {name:'P/FCF',type:'line',data:pfH,  ..._ls2(_VI)},
+        {name:'P/S',  type:'line',data:psH, ..._ls('#22D3EE'),  smooth:false},
+        {name:'P/FCF',type:'line',data:pfH, ..._ls2('#7C3AED'), smooth:false},
       ],
-      tooltip:{..._tt(),valueFormatter:v=>v!=null?`${v.toFixed(1)}x`:'—'},
+      tooltip:{..._nTtN(),valueFormatter:v=>v!=null?`${v.toFixed(1)}x`:'—'},
     });
-  },!psH.some(v=>v!=null)&&!pfH.some(v=>v!=null));
+  }, false);
 
-  // Market Cap + EV — barras MCap + línea EV
-  const mcapH=hist.map(h=>h.hist_mcap?h.hist_mcap/1e9:null);
-  const evH=hist.map((h,i)=>{
-    if(!h.hist_mcap||!data[i]?.net_cash)return null;
-    return(h.hist_mcap-(data[i].net_cash*1e6))/1e9;
-  });
+  // Chart 3 — MARKET CAP Y EV ($B): barras cyan (último sólido, hist 20%) · línea EV violeta
   _ch('af-c-mcap', ch=>{
     ch.setOption({
-      ..._base(years),
-      yAxis:[{type:'value',axisLabel:{color:'#4A5F75',fontFamily:_MONO,fontSize:9,
-        formatter:v=>`$${v.toFixed(0)}B`},
-        splitLine:{lineStyle:{color:'rgba(120,150,180,.10)',type:'dashed'}},axisLine:{show:false}}],
-      legend:_leg(['Mkt Cap','EV'],{bottom:0}),
+      ..._nBaseN(yrs5),
+      yAxis:[_nYaxBN()],
+      legend:_nLegN(['Market Cap','Enterprise Value']),
       series:[
-        {name:'Mkt Cap',type:'bar',data:mcapH.map((v,i)=>({value:v,itemStyle:{color:i===n-1?_CY:_CYS}}))},
-        {name:'EV',type:'line',data:evH,smooth:false,symbol:'circle',symbolSize:4,
-          lineStyle:{color:_VI,width:1.8,type:'dashed'},itemStyle:{color:_VI}},
+        {name:'Market Cap',       type:'bar',barCategoryGap:'38%',
+          itemStyle:{borderRadius:[3,3,0,0]},
+          data:mcapH.map((v,i)=>({value:v,itemStyle:{color:i===n5-1?'#22D3EE':'rgba(34,211,238,.20)'}}))},
+        {name:'Enterprise Value', type:'line',data:evH,
+          smooth:false,symbol:'circle',symbolSize:4,
+          lineStyle:{color:'#7C3AED',width:1.8},itemStyle:{color:'#7C3AED'}},
       ],
-      tooltip:{..._tt(),valueFormatter:v=>v!=null?`$${v.toFixed(1)}B`:'—'},
+      tooltip:{..._nTtN(),valueFormatter:v=>v!=null?`$${v.toFixed(1)}B`:'—'},
     });
-  },!mcapH.some(v=>v!=null)&&mcapUSD==null);
+  }, false);
 
-  // Precio histórico semanal
+  // Chart 4 — PRECIO HISTÓRICO: línea violeta suavizada + fill · puntos anuales FY
   _ch('af-c-px', ch=>{
     ch.setOption({
-      grid:{left:10,right:10,top:6,bottom:22,containLabel:true},
-      xAxis:{type:'category',data:candles.dates,boundaryGap:false,
-        axisLabel:{color:'#4A5F75',fontFamily:_MONO,fontSize:8,
-          formatter:d=>d.slice(0,7),
-          interval:Math.max(0,Math.floor(candles.dates.length/7)-1)},
-        axisLine:{lineStyle:{color:_BOR}},splitLine:{show:false}},
-      yAxis:{type:'value',
-        axisLabel:{color:'#4A5F75',fontFamily:_MONO,fontSize:9,
+      ..._nBaseN(yrs5),
+      yAxis:[{type:'value',
+        axisLabel:{color:'#94A3B8',fontFamily:_MONO,fontSize:9,
           formatter:v=>`$${v>=1000?(v/1000).toFixed(0)+'K':v.toFixed(0)}`},
-        splitLine:{lineStyle:{color:'rgba(120,150,180,.10)',type:'dashed'}},axisLine:{show:false}},
-      series:[{name:tk,type:'line',data:candles.closes,smooth:false,symbol:'none',
-        lineStyle:{color:_VI,width:1.5},areaStyle:{color:'rgba(139,92,246,.08)'}}],
-      tooltip:{trigger:'axis',backgroundColor:'#0B1220',borderColor:_BOR,borderWidth:1,
-        padding:[8,12],textStyle:{fontFamily:_MONO,fontSize:10,color:'#C8D8E8'},
-        formatter:params=>{const p=params[0];return `<div style="font-family:${_MONO}">
-          <div style="color:#4A5F75;font-size:9px;margin-bottom:2px">${p.axisValue}</div>
-          <div style="font-weight:700;color:${_VI};font-size:11px">$${Number(p.value).toFixed(2)}</div></div>`;}},
-      backgroundColor:'transparent',
+        splitLine:{lineStyle:{color:'rgba(30,41,59,.7)',type:'solid'}},
+        axisLine:{show:false},axisTick:{show:false}}],
+      series:[{name:tk,type:'line',data:annualPx,
+        smooth:true,symbol:'circle',symbolSize:4,
+        lineStyle:{color:'#7C3AED',width:1.8},itemStyle:{color:'#7C3AED'},
+        areaStyle:{color:'rgba(124,58,237,.12)'}}],
+      tooltip:{..._nTtN(),valueFormatter:v=>v!=null?`$${v.toFixed(2)}`:'—'},
     });
-  },!hasCandles);
+  }, !annualPx.some(v=>v!=null));
 }
 
 
