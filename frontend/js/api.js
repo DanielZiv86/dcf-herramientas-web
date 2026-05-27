@@ -90,6 +90,7 @@ const api = {
     historico: (fondoId, claseId, meses = 12) => apiFetch(`/fci/historico?fondo_id=${fondoId}&clase_id=${claseId}&meses=${meses}`),
   },
   fundamental: {
+    symbols:     () => apiFetch('/fundamental/symbols'),
     tickers:     () => apiFetch('/fundamental/tickers'),
     config:      () => apiFetch('/fundamental/config'),
     compare:     () => apiFetch('/fundamental/compare'),

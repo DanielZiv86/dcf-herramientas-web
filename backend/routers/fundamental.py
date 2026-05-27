@@ -9,6 +9,14 @@ from services import fundamental as svc
 router = APIRouter(tags=["fundamental"])
 
 
+@router.get("/symbols")
+async def get_symbols(dcf_session: Optional[str] = Cookie(default=None)):
+    """Universo de símbolos USA para el buscador/autocomplete del frontend.
+    Generado por scripts/update_finnhub_us_symbols.py y cacheado en disco."""
+    require_auth(dcf_session)
+    return svc.get_symbols()
+
+
 @router.get("/tickers")
 async def get_tickers(dcf_session: Optional[str] = Cookie(default=None)):
     require_auth(dcf_session)

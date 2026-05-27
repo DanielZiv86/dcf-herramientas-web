@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 BASE_URL     = "https://finnhub.io/api/v1"
 STATIC_DIR   = Path(__file__).resolve().parents[1] / "data" / "fundamental" / "tickers"
 PARQUET_DIR  = Path(__file__).resolve().parents[1] / "data" / "fundamental"
+SYMBOLS_PATH = Path(__file__).resolve().parents[1] / "data" / "fundamental" / "us_symbols_search.json"
 STATIC_TTL   = 86400  # 24h — tiempo máximo antes de regenerar el JSON estático
 FINNHUB_TTL  = 43200  # 12h — cache de parquet Finnhub
 
@@ -768,6 +769,22 @@ async def _fh_get(path: str, **params) -> dict:
 
 def get_config() -> dict:
     return {"tickers": CURATED_TICKERS, "info": TICKER_INFO, "config": TICKER_CONFIG}
+
+
+def get_symbols() -> list[dict]:
+    """Retorna el archivo liviano de símbolos USA para el buscador.
+    Generado por scripts/update_finnhub_us_symbols.py.
+    Si el archivo no existe, retorna la lista curada como fallback."""
+    if SYMBOLS_PATH.exists():
+        try:
+            return json.loads(SYMBOLS_PATH.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning("[fund] get_symbols: error leyendo archivo: %s", e)
+    # Fallback: retornar tickers curados en el mismo formato
+    return [
+        {"symbol": tk, "name": info.get("name", tk).upper(), "type": "Common Stock", "mic": ""}
+        for tk, info in TICKER_INFO.items()
+    ]
 
 
 # ══════════════════════════════════════════════════════════════════════════════

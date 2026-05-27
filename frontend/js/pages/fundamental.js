@@ -52,108 +52,283 @@ const _AF_MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','
    ══════════════════════════════════════════════════════════════════════════ */
 
 (window.pages = window.pages || {}).fundamental = async function(container) {
+
+  /* ── Estado de la sección ──────────────────────────────────────────────── */
+  let _tabId   = 'negocio';
+  const _cache = new Map();   // ticker → { perfil, financieros, candles }
+  let _symbols = [];          // cargado una vez para autocomplete
+  let _ddSel   = -1;          // fila seleccionada en dropdown
+
+  /* ── Shell HTML ─────────────────────────────────────────────────────────── */
   container.innerHTML = `
     <div class="bt2-page" id="af-root">
-      <!-- Page header -->
-      <div style="margin-bottom:12px">
-        <h1 style="font-size:1.20rem;font-weight:700;color:${_G};letter-spacing:-.02em;margin:0 0 2px">
-          Análisis Fundamental
-        </h1>
-        <div style="font-family:${_MONO};font-size:.68rem;color:#4A5F75">
-          US Equities · 13 compañías curadas · yfinance + Finnhub
+      <style>@keyframes af-spin{to{transform:rotate(360deg)}}</style>
+
+      <!-- Header + buscador en la misma línea -->
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;flex-wrap:wrap">
+        <div style="flex:1;min-width:0">
+          <h1 style="font-size:1.20rem;font-weight:700;color:${_G};letter-spacing:-.02em;margin:0 0 2px">
+            Análisis Fundamental
+          </h1>
+          <div style="font-family:${_MONO};font-size:.58rem;color:#4A5F75">
+            US Equities · Carga bajo demanda · Finnhub + yfinance
+          </div>
+        </div>
+
+        <!-- Buscador con autocomplete -->
+        <div style="position:relative;flex-shrink:0">
+          <div style="display:flex;gap:6px;align-items:center">
+            <div style="position:relative">
+              <input id="af-input" autocomplete="off" spellcheck="false"
+                placeholder="Ticker USA…"
+                style="background:#0D1525;border:1px solid #2A3350;color:#F8FAFC;
+                  padding:6px 30px 6px 10px;border-radius:8px;
+                  font-family:${_MONO};font-size:.76rem;font-weight:700;
+                  width:180px;outline:none;letter-spacing:.05em;
+                  transition:border-color .15s;text-transform:uppercase"/>
+              <span style="position:absolute;right:9px;top:50%;transform:translateY(-50%);
+                color:#4A5F75;font-size:.80rem;pointer-events:none;font-family:${_MONO}">⌕</span>
+            </div>
+            <button id="af-btn"
+              style="background:${_GD};border:1px solid ${_GB};color:${_G};
+                padding:6px 14px;border-radius:8px;font-family:${_MONO};font-size:.70rem;
+                font-weight:700;cursor:pointer;white-space:nowrap;letter-spacing:.04em">
+              ANALIZAR
+            </button>
+          </div>
+          <!-- Dropdown autocomplete -->
+          <div id="af-dd" style="display:none;position:absolute;top:calc(100% + 4px);right:0;
+            width:340px;max-height:240px;overflow-y:auto;
+            background:#0D1525;border:1px solid #2A3350;border-radius:8px;
+            z-index:999;box-shadow:0 8px 24px rgba(0,0,0,.7)"></div>
         </div>
       </div>
 
-      <!-- Ticker selector -->
-      <div style="margin-bottom:14px">
-        <div style="font-family:${_MONO};font-size:.57rem;color:#4A5F75;text-transform:uppercase;
-          letter-spacing:.09em;font-weight:700;margin-bottom:6px">Tickers curados</div>
-        <div id="af-pills" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px"></div>
-        <div style="display:flex;gap:6px;align-items:center">
-          <input class="dcf-input" id="af-input"
-            placeholder="Buscar cualquier ticker US…"
-            style="width:240px;font-family:${_MONO};font-size:.76rem"/>
-          <button id="af-search"
-            style="background:${_GD};border:1px solid ${_GB};color:${_G};
-              padding:4px 12px;border-radius:6px;font-family:${_MONO};font-size:.70rem;
-              font-weight:700;cursor:pointer;white-space:nowrap;letter-spacing:.04em">BUSCAR</button>
-        </div>
-      </div>
-
-      <!-- Contenido principal -->
+      <!-- Área de contenido principal -->
       <div id="af-main"></div>
 
-      <!-- Disclaimer compacto -->
+      <!-- Disclaimer -->
       <div style="margin-top:10px;padding:6px 10px;background:rgba(245,158,11,.04);
         border:1px solid rgba(245,158,11,.10);border-radius:6px;
         display:flex;gap:7px;align-items:flex-start">
         <span style="color:#F59E0B;font-size:.66rem;flex-shrink:0;margin-top:1px">⚠</span>
         <div style="font-family:${_MONO};font-size:.58rem;color:#4A5F75;line-height:1.35">
           Solo fines informativos. No constituye asesoramiento de inversión.
-          Fuentes: yfinance · Finnhub · DCF Inversiones.
+          Fuentes: Finnhub · yfinance · DCF Inversiones.
         </div>
       </div>
     </div>`;
 
-  let _active  = null;
-  let _cfgData = null;
-  let _tabId   = 'negocio';
+  /* ── Cargar símbolos en background (no bloquea el render) ─────────────── */
+  api.fundamental.symbols().then(d => { _symbols = Array.isArray(d) ? d : []; }).catch(() => {});
 
-  try { _cfgData = await api.fundamental.config(); }
-  catch (e) { _cfgData = { tickers: [], config: {} }; }
+  /* ── Mostrar estado inicial ─────────────────────────────────────────────── */
+  _showIdle();
 
-  const tickers = _cfgData.tickers || [];
-  const pillsEl = document.getElementById('af-pills');
-  tickers.forEach(tk => {
-    const b = document.createElement('button');
-    b.id = `af-p-${tk}`;
-    b.textContent = tk;
-    b.style.cssText = `background:rgba(212,175,55,.08);border:1px solid rgba(212,175,55,.18);
-      color:#7F93AD;padding:3px 9px;border-radius:16px;font-family:${_MONO};
-      font-size:.67rem;font-weight:700;cursor:pointer;transition:.12s;letter-spacing:.04em`;
-    b.onmouseenter = () => { if (_active !== tk) b.style.borderColor = _GB; };
-    b.onmouseleave = () => { if (_active !== tk) b.style.borderColor = 'rgba(212,175,55,.18)'; };
-    b.onclick = () => _load(tk);
-    pillsEl.appendChild(b);
+  /* ── Referencias a elementos del DOM ───────────────────────────────────── */
+  const input = document.getElementById('af-input');
+  const dd    = document.getElementById('af-dd');
+
+  /* ── Autocomplete: lógica ────────────────────────────────────────────────── */
+  function _filterSymbols(q, limit = 10) {
+    if (!_symbols.length || !q) return [];
+    const prefix = [], partial = [];
+    for (const s of _symbols) {
+      if (prefix.length + partial.length >= limit * 2) break;
+      if (s.symbol.startsWith(q)) prefix.push(s);
+      else if (s.name && s.name.includes(q)) partial.push(s);
+    }
+    return [...prefix, ...partial].slice(0, limit);
+  }
+
+  function _micLabel(mic) {
+    return { XNAS:'NASDAQ', XNYS:'NYSE', ARCX:'NYSE Arca', BATS:'CBOE', XASE:'AMEX' }[mic] || mic || '';
+  }
+
+  function _capName(s) {
+    if (!s) return '';
+    return s.split(' ').map(w => w.charAt(0) + w.slice(1).toLowerCase()).join(' ').slice(0, 28);
+  }
+
+  function _renderDropdown(matches) {
+    if (!matches.length) { dd.style.display = 'none'; return; }
+    dd.innerHTML = matches.map((s, i) =>
+      `<div data-i="${i}" data-sym="${s.symbol}"
+        style="padding:7px 12px;cursor:pointer;font-family:${_MONO};
+          border-bottom:1px solid rgba(42,51,80,.4)">
+        <span style="color:${_G};font-size:.78rem;font-weight:700">${s.symbol}</span>
+        <span style="color:#5A7390;font-size:.66rem;margin-left:7px">${_capName(s.name)}</span>
+        ${s.mic ? `<span style="color:#2D4157;font-size:.58rem;margin-left:5px">${_micLabel(s.mic)}</span>` : ''}
+      </div>`
+    ).join('');
+    _ddSel = -1;
+    dd.style.display = 'block';
+    dd.querySelectorAll('div[data-sym]').forEach(row => {
+      row.onmouseenter = () => {
+        dd.querySelectorAll('div[data-sym]').forEach(r => r.style.background = '');
+        row.style.background = 'rgba(212,175,55,.08)';
+        _ddSel = +row.dataset.i;
+      };
+      row.onmouseleave = () => { row.style.background = ''; };
+      row.onclick      = () => { _selectFromDD(row.dataset.sym); };
+    });
+  }
+
+  function _selectFromDD(sym) {
+    input.value = sym;
+    dd.style.display = 'none';
+    _ddSel = -1;
+    _load(sym);
+  }
+
+  function _ddMove(dir) {
+    const rows = dd.querySelectorAll('div[data-sym]');
+    if (!rows.length) return;
+    rows.forEach(r => r.style.background = '');
+    _ddSel = Math.max(0, Math.min(rows.length - 1, _ddSel + dir));
+    rows[_ddSel].style.background = 'rgba(212,175,55,.12)';
+    input.value = rows[_ddSel].dataset.sym;
+  }
+
+  /* ── Eventos de búsqueda ─────────────────────────────────────────────────── */
+  input.addEventListener('focus',  () => { input.style.borderColor = _GB; });
+  input.addEventListener('blur',   () => {
+    input.style.borderColor = '#2A3350';
+    setTimeout(() => { dd.style.display = 'none'; _ddSel = -1; }, 160);
+  });
+  input.addEventListener('input',  () => {
+    const q = input.value.trim().toUpperCase();
+    _renderDropdown(_filterSymbols(q));
+  });
+  input.addEventListener('keydown', e => {
+    if      (e.key === 'ArrowDown')  { e.preventDefault(); _ddMove(1); }
+    else if (e.key === 'ArrowUp')    { e.preventDefault(); _ddMove(-1); }
+    else if (e.key === 'Escape')     { dd.style.display = 'none'; input.blur(); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      const rows = dd.querySelectorAll('div[data-sym]');
+      const sym  = (_ddSel >= 0 && rows[_ddSel]) ? rows[_ddSel].dataset.sym : null;
+      const v    = (sym || input.value).replace(/[^A-Z0-9.]/gi, '').toUpperCase().slice(0, 10);
+      if (v) { dd.style.display = 'none'; _load(v); }
+    }
+  });
+  document.getElementById('af-btn').addEventListener('click', () => {
+    const v = input.value.replace(/[^A-Z0-9.]/gi, '').toUpperCase().slice(0, 10);
+    if (v) { dd.style.display = 'none'; _load(v); }
   });
 
-  document.getElementById('af-search')?.addEventListener('click', () => {
-    const v = document.getElementById('af-input')?.value?.trim()?.toUpperCase();
-    if (v) _load(v);
-  });
-  document.getElementById('af-input')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter') { const v = e.target.value.trim().toUpperCase(); if (v) _load(v); }
-  });
+  /* ── Estados visuales ───────────────────────────────────────────────────── */
+  function _showIdle() {
+    const quick = ['AAPL','MSFT','NVDA','AMZN','META','GOOGL','TSLA','MELI'];
+    document.getElementById('af-main').innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;
+        justify-content:center;min-height:300px;text-align:center;padding:20px">
+        <div style="font-size:2.4rem;margin-bottom:14px;opacity:.25">📊</div>
+        <div style="font-family:${_MONO};font-size:.88rem;font-weight:700;
+          color:#3A5068;margin-bottom:8px">
+          Ingresá un ticker para iniciar el análisis
+        </div>
+        <div style="font-family:${_MONO};font-size:.63rem;color:#2D4157;
+          line-height:1.7;max-width:360px;margin-bottom:18px">
+          Podés buscar cualquier acción que cotice en USA.<br>
+          Usá el buscador o seleccioná uno de los ejemplos.
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center">
+          ${quick.map(t =>
+            `<button
+              style="background:rgba(212,175,55,.06);border:1px solid rgba(212,175,55,.14);
+                color:#4A5F75;padding:4px 11px;border-radius:16px;font-family:${_MONO};
+                font-size:.65rem;font-weight:700;cursor:pointer;letter-spacing:.04em;
+                transition:.12s"
+              onmouseenter="this.style.borderColor='rgba(212,175,55,.35)';this.style.color='${_G}'"
+              onmouseleave="this.style.borderColor='rgba(212,175,55,.14)';this.style.color='#4A5F75'"
+              onclick="(()=>{document.getElementById('af-input').value='${t}';window.__afLoad('${t}')})()">
+              ${t}
+            </button>`
+          ).join('')}
+        </div>
+      </div>`;
+    window.__afLoad = _load;
+  }
 
-  _load('CRWD');
+  function _showLoading(tk) {
+    document.getElementById('af-main').innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;
+        justify-content:center;min-height:240px;text-align:center;padding:20px">
+        <div style="width:26px;height:26px;border:2px solid rgba(212,175,55,.18);
+          border-top-color:${_G};border-radius:50%;
+          animation:af-spin .75s linear infinite;margin-bottom:14px"></div>
+        <div style="font-family:${_MONO};font-size:.82rem;font-weight:700;
+          color:${_G};margin-bottom:6px">
+          Buscando información de ${tk}…
+        </div>
+        <div style="font-family:${_MONO};font-size:.62rem;color:#4A5F75;line-height:1.6">
+          Consultando datos fundamentales, precios históricos y métricas de valuación
+        </div>
+      </div>`;
+  }
 
-  async function _load(tk) {
-    _active = tk;
-    _afSetPillActive(tickers, tk);
-    const main = document.getElementById('af-main');
-    main.innerHTML = `<div style="padding:16px 0">
-      ${[1,2,3].map(()=>`<div class="skeleton" style="height:44px;border-radius:6px;margin-bottom:7px"></div>`).join('')}
-      <div class="skeleton" style="height:200px;border-radius:8px;margin-top:12px"></div></div>`;
+  function _showError(tk, msg) {
+    document.getElementById('af-main').innerHTML = `
+      <div style="max-width:480px;margin:0 auto;padding:20px 0">
+        <div style="background:#12182B;border:1px solid rgba(248,113,113,.22);
+          border-radius:12px;padding:24px;text-align:center">
+          <div style="font-size:1.5rem;margin-bottom:10px;opacity:.7">✕</div>
+          <div style="font-family:${_MONO};font-size:.80rem;font-weight:700;
+            color:${_RE};margin-bottom:8px">No se pudo cargar ${tk}</div>
+          <div style="font-family:${_MONO};font-size:.64rem;color:#4A5F75;
+            line-height:1.6;margin-bottom:16px">${msg}</div>
+          <button onclick="window.__afIdle&&window.__afIdle()"
+            style="background:${_GD};border:1px solid ${_GB};color:${_G};
+              padding:5px 16px;border-radius:7px;font-family:${_MONO};
+              font-size:.68rem;font-weight:700;cursor:pointer">
+            Buscar otro ticker
+          </button>
+        </div>
+      </div>`;
+    window.__afIdle = _showIdle;
+  }
+
+  /* ── Carga bajo demanda con cache ────────────────────────────────────────── */
+  async function _load(rawTicker) {
+    const tk = rawTicker.replace(/[^A-Z0-9.]/gi, '').toUpperCase().slice(0, 10);
+    if (!tk) return;
+    input.value = tk;
+    _showLoading(tk);
 
     try {
-      const [p, f, c] = await Promise.allSettled([
-        api.fundamental.perfil(tk),
-        api.fundamental.financieros(tk),
-        api.fundamental.candles(tk, 'W'),
-      ]);
-      const perfil      = p.status === 'fulfilled' ? p.value : {};
-      const financieros = f.status === 'fulfilled' ? f.value : { data: [] };
-      const candles     = c.status === 'fulfilled' ? c.value : { status: 'no_data', dates: [], closes: [] };
-      const cfg = (_cfgData?.config || {})[tk] || {};
-      if (cfg.description && !perfil.description) perfil.description = cfg.description;
-      if (cfg.tags?.length && !perfil.tags?.length)  perfil.tags = cfg.tags;
-      _renderFull(main, tk, perfil, financieros, candles);
+      if (!_cache.has(tk)) {
+        const [p, f, c] = await Promise.allSettled([
+          api.fundamental.perfil(tk),
+          api.fundamental.financieros(tk),
+          api.fundamental.candles(tk, 'W'),
+        ]);
+        const cached = {
+          perfil:      p.status === 'fulfilled' ? p.value : {},
+          financieros: f.status === 'fulfilled' ? f.value : { data: [] },
+          candles:     c.status === 'fulfilled' ? c.value : { dates: [], closes: [] },
+        };
+        // Validar datos mínimos: profile con nombre/mcap, o al menos un año financiero
+        const prof    = cached.perfil?.profile || {};
+        const finData = (cached.financieros?.data || []).filter(r => r?.year);
+        if (!prof.name && !prof.market_cap && !finData.length) {
+          _showError(tk, `No encontramos datos para <strong>${tk}</strong>.<br>Verificá que sea un símbolo válido de USA.`);
+          return;
+        }
+        _cache.set(tk, cached);
+      }
+
+      const { perfil, financieros, candles } = _cache.get(tk);
+      _renderFull(document.getElementById('af-main'), tk, perfil, financieros, candles);
     } catch (e) {
-      main.innerHTML = `<div class="bt2-panel" style="padding:20px;color:var(--negative)">
-        ✕ Error cargando ${tk}: ${e.message || 'error desconocido'}</div>`;
+      const msg = e?.status === 429
+        ? 'Fuente de datos temporalmente limitada. Intentá de nuevo en unos minutos.'
+        : (e.message || 'Error de conexión. Verificá tu acceso e intentá nuevamente.');
+      _showError(tk, msg);
     }
   }
 
+  /* ── Render completo (sin cambios respecto al diseño benchmark) ──────────── */
   function _renderFull(main, tk, perfil, financieros, candles) {
     const { profile = {}, quote = {}, metrics = {}, description = '', tags = [] } = perfil;
     const data = (financieros.data || []).filter(r => r?.year);
@@ -169,7 +344,7 @@ const _AF_MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','
     el.innerHTML = `<div style="display:flex;gap:2px;flex-wrap:wrap;padding:3px;
       background:rgba(11,18,32,.9);border:1px solid ${_BOR};
       border-radius:9px;width:fit-content"></div>`;
-    const bar = el.querySelector('div');
+    const bar  = el.querySelector('div');
     const body = document.getElementById('af-tab-body');
 
     _TABS.forEach(tab => {
@@ -190,8 +365,8 @@ const _AF_MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','
         bar.querySelectorAll('button').forEach(b => {
           const a = b.getAttribute('data-tab') === _tabId;
           b.style.background = a ? 'rgba(36,54,77,.9)' : 'transparent';
-          b.style.border = `1px solid ${a ? 'rgba(36,54,77,1)' : 'transparent'}`;
-          b.style.color  = a ? '#C8D8E8' : '#4A5F75';
+          b.style.border     = `1px solid ${a ? 'rgba(36,54,77,1)' : 'transparent'}`;
+          b.style.color      = a ? '#C8D8E8' : '#4A5F75';
         });
         _dispatchTab(body, tab.id, tk, profile, quote, metrics, desc, tags, data, candles);
       };
@@ -1449,13 +1624,3 @@ function _kpi(label, value, sub, badge, color, negVal=false) {
   </div>`;
 }
 
-function _afSetPillActive(tickers, active) {
-  tickers.forEach(tk=>{
-    const b=document.getElementById(`af-p-${tk}`);
-    if(!b)return;
-    const isA=tk===active;
-    b.style.background  =isA?_GD:'rgba(212,175,55,.08)';
-    b.style.borderColor =isA?_GB:'rgba(212,175,55,.18)';
-    b.style.color       =isA?_G:'#7F93AD';
-  });
-}
