@@ -42,8 +42,6 @@ const _TABS = [
   { id: 'rentabilidad', label: 'Rentabilidad', icon: '💰' },
   { id: 'financiera',   label: 'Financiera',   icon: '🏦' },
   { id: 'valuacion',    label: 'Valuación',    icon: '🎯' },
-  { id: 'ranking',      label: 'Ranking IA',   icon: '⭐' },
-  { id: 'comparar',     label: 'Comparar',     icon: '⚡' },
 ];
 
 const _AF_MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
@@ -210,8 +208,6 @@ const _AF_MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','
       case 'rentabilidad': _tabRentabilidad(body, tk, data, metrics); break;
       case 'financiera':   _tabFinanciera(body, tk, data); break;
       case 'valuacion':    _tabValuacion(body, tk, data, metrics, profile, candles); break;
-      case 'ranking':      _tabRanking(body, tk); break;
-      case 'comparar':     _tabComparar(body); break;
     }
   }
 };
@@ -1244,114 +1240,6 @@ function _tabValuacion(container, tk, data, metrics, profile, candles) {
       tooltip:{..._nTtN(),valueFormatter:v=>v!=null?`$${v.toFixed(2)}`:'—'},
     });
   }, !annualPx.some(v=>v!=null));
-}
-
-
-/* ══════════════════════════════════════════════════════════════════════════
-   TAB: RANKING IA
-   ══════════════════════════════════════════════════════════════════════════ */
-
-function _tabRanking(container, tk) {
-  container.innerHTML = `
-    <div style="max-width:600px;margin:0 auto">
-      <div style="background:${_CARD};border:1px solid ${_BOR};border-radius:10px;padding:24px;text-align:center;margin-bottom:12px">
-        <div style="font-size:1.8rem;margin-bottom:10px">⭐</div>
-        <div style="font-size:.95rem;font-weight:700;color:#F4F7FB;font-family:${_MONO};margin-bottom:6px">
-          Ranking IA — Próximamente</div>
-        <div style="color:#5A7390;font-size:.72rem;line-height:1.6">
-          Este módulo rankeará las 13 empresas para el inversor argentino
-          con horizonte 2-5 años, considerando sector, macro, momentum y valuación.
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
-        ${['📊 Fundamental','📈 Crecimiento','💰 Rentabilidad',
-           '🎯 Valuación','🏦 Financiero','⚡ Score Global'].map(s=>`
-          <div style="background:#0B1220;border:1px solid ${_BOR};border-radius:8px;padding:9px 11px">
-            <div style="font-size:.65rem;color:#5A7390;font-family:${_MONO};margin-bottom:3px">${s}</div>
-            <div style="font-size:1rem;font-weight:700;color:#2D4157;font-family:${_MONO}">—/10</div>
-          </div>`).join('')}
-      </div>
-      <div style="text-align:center">
-        <button disabled style="background:${_GD};border:1px solid ${_GB};color:${_G};
-          padding:7px 18px;border-radius:7px;font-family:${_MONO};font-size:.72rem;
-          font-weight:700;opacity:.5;cursor:not-allowed">⭐ Generar Ranking IA</button>
-        <div style="font-family:${_MONO};font-size:.58rem;color:#2D4157;margin-top:6px">
-          Requiere ANTHROPIC_API_KEY en secrets</div>
-      </div>
-    </div>`;
-}
-
-
-/* ══════════════════════════════════════════════════════════════════════════
-   TAB: COMPARAR
-   ══════════════════════════════════════════════════════════════════════════ */
-
-async function _tabComparar(container) {
-  container.innerHTML = `
-    <div class="bt2-panel" style="padding:12px 16px">
-      <div class="bt2-panel-hdr">
-        <span class="bt2-panel-title">COMPARATIVA — 13 TICKERS CURADOS</span>
-        <span class="bt2-panel-sub" id="cmp-sub">Cargando…</span>
-      </div>
-      <div id="cmp-body" class="bt2-snapshot-scroll" style="overflow-x:auto">
-        ${[...Array(6)].map(()=>`<div class="skeleton" style="height:28px;border-radius:4px;margin-bottom:4px"></div>`).join('')}
-      </div>
-    </div>`;
-  try {
-    const summaries = await api.fundamental.compare();
-    _renderCompareTable(document.getElementById('cmp-body'), summaries);
-    const sub = document.getElementById('cmp-sub');
-    if (sub) sub.textContent = `${summaries.filter(s=>!s.error).length} tickers`;
-  } catch (e) {
-    document.getElementById('cmp-body').innerHTML = `
-      <div style="padding:14px;font-family:${_MONO};color:var(--negative);font-size:.72rem">
-        Error: ${e.message}</div>`;
-  }
-}
-
-function _renderCompareTable(el, summaries) {
-  const thS=`padding:5px 9px;font-family:${_MONO};font-size:.55rem;font-weight:700;
-    text-transform:uppercase;letter-spacing:.08em;color:#2D4157;white-space:nowrap;
-    border-bottom:1px solid ${_BOR}`;
-  const cols = [
-    {k:'ticker',    h:'TICKER',  f:s=>`<span style="font-weight:700;color:${_G};font-family:${_MONO};cursor:pointer"
-       onclick="document.getElementById('af-p-${s.ticker}')?.click()">${s.ticker}</span>`, al:'left'},
-    {k:'name',      h:'EMPRESA', f:s=>`<span style="color:#7F93AD;font-size:.68rem">${(s.name||'').split(' ').slice(0,3).join(' ')}</span>`, al:'left'},
-    {k:'sector',    h:'SECTOR',  f:s=>`<span style="color:#4A5F75;font-size:.62rem">${s.sector||'—'}</span>`, al:'left'},
-    {k:'market_cap',h:'MKT CAP', f:s=>s.market_cap!=null?_fmtB(s.market_cap*1e6):'—',  num:true},
-    {k:'revenue',   h:'REV FY',  f:s=>s.revenue!=null?_fmtM(s.revenue):'—',             num:true},
-    {k:'revenue_yoy',h:'REV YoY',f:s=>_pct(s.revenue_yoy),                              num:true,pct:true},
-    {k:'gross_margin',h:'GP%',   f:s=>_pct1(s.gross_margin),                            num:true,pct:true},
-    {k:'ebitda_margin',h:'EBITDA%',f:s=>_pct1(s.ebitda_margin),                         num:true,pct:true},
-    {k:'fcf_margin',h:'FCF%',    f:s=>_pct1(s.fcf_margin),                              num:true,pct:true},
-    {k:'roe',       h:'ROE',     f:s=>_pct1(s.roe),                                     num:true,pct:true},
-    {k:'pe_ttm',    h:'P/E',     f:s=>s.pe_ttm!=null?`${s.pe_ttm.toFixed(1)}x`:'—',    num:true,lo:true},
-    {k:'ps_ttm',    h:'P/S',     f:s=>s.ps_ttm!=null?`${s.ps_ttm.toFixed(1)}x`:'—',    num:true,lo:true},
-    {k:'ev_ebitda', h:'EV/EBITDA',f:s=>{const v=s.ev_ebitda;return v!=null&&Math.abs(v)<999?`${v.toFixed(1)}x`:'N/A';}, num:true,lo:true},
-    {k:'beta',      h:'BETA',    f:s=>s.beta!=null?s.beta.toFixed(2):'—',               num:true},
-    {k:'rev_cagr_3y',h:'CAGR 3Y',f:s=>_pct1(s.rev_cagr_3y),                            num:true,pct:true},
-  ];
-  const best={};
-  cols.filter(c=>c.num).forEach(c=>{
-    const vals=summaries.filter(s=>!s.error).map(s=>s[c.k]).filter(v=>v!=null&&isFinite(v));
-    if(vals.length) best[c.k]=c.lo?Math.min(...vals):Math.max(...vals);
-  });
-  const headers=cols.map(c=>`<th style="${thS};text-align:${c.al||'right'}">${c.h}</th>`).join('');
-  const rows=summaries.map(s=>{
-    if(s.error)return`<tr><td colspan="${cols.length}" style="padding:5px 9px;color:#2D4157;font-family:${_MONO};font-size:.68rem">${s.ticker}—sin datos</td></tr>`;
-    return`<tr class="bt2-row">${cols.map(c=>{
-      const raw=s[c.k];
-      const isBest=c.num&&best[c.k]!=null&&raw!=null&&Math.abs(raw-best[c.k])<0.001;
-      let col='#7F93AD';
-      if(c.pct&&raw!=null)col=raw>0?_GR:raw<0?_RE:'#7F93AD';
-      const bg=isBest?'rgba(212,175,55,.08)':'transparent';
-      return`<td style="padding:5px 9px;font-family:${_MONO};font-size:.72rem;
-        text-align:${c.al!=='left'?'right':'left'};color:${col};background:${bg};
-        border-bottom:1px solid rgba(30,45,61,.5);white-space:nowrap">${c.f(s)}</td>`;
-    }).join('')}</tr>`;
-  }).join('');
-  el.innerHTML=`<table class="bt2-table" style="min-width:900px">
-    <thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 
