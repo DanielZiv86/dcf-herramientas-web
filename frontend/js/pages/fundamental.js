@@ -525,7 +525,13 @@ function _tabEmpresa(container, tk, profile, quote, metrics, desc, tags, data) {
   // Ratios calculados desde estados financieros como fallback cuando metrics es vacío
   const _pe   = _pv(metrics.pe_ttm,
                     mcapM&&last?.net_income>0 ? mcapM/last.net_income : null);
-  const _pef  = _pv(metrics.pe_forward);
+  // P/E Forward: directo de metrics; fallback computado desde precio / EPS forward
+  const _pef  = _pv(
+    metrics.pe_forward,
+    (quote.price && metrics.eps_forward && +metrics.eps_forward > 0)
+      ? +quote.price / +metrics.eps_forward
+      : null
+  );
   const _ps   = _pv(metrics.ps_ttm,
                     mcapM&&last?.revenue>0    ? mcapM/last.revenue    : null);
   const _pb   = _pv(metrics.pb_annual);
@@ -1326,30 +1332,62 @@ function _tabValuacion(container, tk, data, metrics, profile, candles) {
     };
   });
 
-  // Arrays históricos — Finnhub historical (primario, no depende de candles) + computed fallback
+  // ── Cadena de fallback para series históricas ─────────────────────────────
+  // Fuente 1: Finnhub series.annual (no depende de candles)
   const fhYears = d5.map(d => d.year);
   const fhPeH   = _fhSeries(metrics.hist_pe,       fhYears);
   const fhPsH   = _fhSeries(metrics.hist_ps,        fhYears);
   const fhPbH   = _fhSeries(metrics.hist_pb,        fhYears);
   const fhEvH   = _fhSeries(metrics.hist_ev_ebitda, fhYears);
 
-  // Computed desde candles × shares (fallback cuando Finnhub no tiene series)
+  // Fuente 2: computed desde candles × shares (histEx)
   const compPeH     = histEx.map(h=>h.pe      &&h.pe     >0&&h.pe     <999?+h.pe.toFixed(1)        :null);
   const compPsH     = histEx.map(h=>h.ps      &&h.ps     >0&&h.ps     <999?+h.ps.toFixed(1)        :null);
   const compPbH     = histEx.map(h=>h.pb      &&h.pb     >0&&h.pb     <200?+h.pb.toFixed(1)        :null);
   const compEvEbitH = histEx.map(h=>h.ev_ebitda&&h.ev_ebitda>0&&h.ev_ebitda<400?+h.ev_ebitda.toFixed(1):null);
+  const compPfcfH   = histEx.map(h=>h.pfcf&&h.pfcf>0&&h.pfcf<999?+h.pfcf.toFixed(1):null);
 
-  // Merge: Finnhub historical primero, computed desde candles como fallback
+  // Fuente 3: aprox — MCap actual ÷ financials históricos (usa hoy's MCap, tendencia válida)
+  const _safeM = (num, den) => {
+    if (num==null || !den || den<=0) return null;
+    const v = num/den; return (v>0&&v<999) ? +v.toFixed(1) : null;
+  };
+  const approxPsH  = d5.map(d => _safeM(mcapM, d.revenue));
+  const approxPfH  = d5.map(d => _safeM(mcapM, d.fcf));
+
+  // Merge P/S y P/FCF: Finnhub → candles → approx con MCap actual
   const peH     = fhPeH.map((v,i)  => v ?? compPeH[i]);
-  const psH     = fhPsH.map((v,i)  => v ?? compPsH[i]);
-  const pfH     = histEx.map(h=>h.pfcf&&h.pfcf>0&&h.pfcf<999?+h.pfcf.toFixed(1):null);
+  const psH     = fhPsH.map((v,i)  => v ?? compPsH[i]  ?? approxPsH[i]);
+  const pfH     = compPfcfH.map((v,i)=> v ?? approxPfH[i]);
   const pbH     = fhPbH.map((v,i)  => v ?? compPbH[i]);
   const evEbitH = fhEvH.map((v,i)  => v ?? compEvEbitH[i]);
   const evSlsH  = histEx.map(h=>h.ev_sales&&h.ev_sales>0&&h.ev_sales<999?+h.ev_sales.toFixed(1):null);
-  const mcapH   = histEx.map(h=>h.hist_mcap ? +(h.hist_mcap/1e9).toFixed(1) : null);
-  const evH     = histEx.map((h,i)=>{
-    if(!h.hist_mcap)return null;
-    return +((h.hist_mcap-(d5[i]?.net_cash??0)*1e6)/1e9).toFixed(1);
+
+  // ── Market Cap histórico: candles → Finnhub hist_ps×rev → hist_pe×NI → plano actual
+  const compMcapH  = histEx.map(h=>h.hist_mcap ? +(h.hist_mcap/1e9).toFixed(1) : null);
+  const fhMcapPs   = fhPsH.map((ps,i) => {
+    const rev = d5[i]?.revenue;
+    return (ps!=null&&rev&&rev>0) ? +(ps*rev/1e3).toFixed(1) : null;  // ps×rev_M/1000 = MCap_B
+  });
+  const fhMcapPe   = fhPeH.map((pe,i) => {
+    const ni = d5[i]?.net_income;
+    return (pe!=null&&ni&&ni>0) ? +(pe*ni/1e3).toFixed(1) : null;
+  });
+  // Último fallback: MCap actual plano (en billions)
+  const flatMcap   = mcapM!=null ? d5.map(()=>+(mcapM/1e3).toFixed(1)) : d5.map(()=>null);
+
+  const mcapH = compMcapH.map((v,i) => v ?? fhMcapPs[i] ?? fhMcapPe[i] ?? flatMcap[i]);
+
+  // ── Enterprise Value: desde hist_mcap exacto; si no, desde mcapH - net_cash ──
+  const evH = mcapH.map((mc,i) => {
+    if (mc==null) return null;
+    if (histEx[i]?.hist_mcap) {
+      // hist_mcap está en USD absoluto
+      return +((histEx[i].hist_mcap - (d5[i]?.net_cash??0)*1e6)/1e9).toFixed(1);
+    }
+    // mc en billions; net_cash en millions → /1000 para convertir
+    const nc = d5[i]?.net_cash ?? 0;
+    return +(mc - nc/1e3).toFixed(1);
   });
 
   const _avg5 = arr=>{ const v=arr.filter(x=>x!=null&&Number.isFinite(x)&&x>0); return v.length?v.reduce((a,b)=>a+b,0)/v.length:null; };
@@ -1396,15 +1434,26 @@ function _tabValuacion(container, tk, data, metrics, profile, candles) {
 
   const DEBUG_FUNDAMENTALS = false;
   if (DEBUG_FUNDAMENTALS) {
-    console.group('[AF DEBUG] _tabValuacion:', tk);
+    console.group('[AF DEBUG] _tabValuacion pipeline:', tk);
     console.log('candles:', {dates: candles?.dates?.length, closes: candles?.closes?.length});
     console.log('sharesEst:', sharesEst, '| shares:', shares, '| mcapM:', mcapM);
+    console.group('Fuente 1 — Finnhub hist series');
     console.log('fhPeH:', fhPeH, '→ peH:', peH);
     console.log('fhPsH:', fhPsH, '→ psH:', psH);
     console.log('fhPbH:', fhPbH, '→ pbH:', pbH);
     console.log('fhEvH:', fhEvH, '→ evEbitH:', evEbitH);
-    console.log('pfH:', pfH, '| mcapH:', mcapH, '| evH:', evH);
+    console.groupEnd();
+    console.group('Fuente 2 — computed (candles × shares)');
+    console.log('compPsH:', compPsH, '| compPfcfH:', compPfcfH, '| compMcapH:', compMcapH);
+    console.groupEnd();
+    console.group('Fuente 3 — approx (MCap actual ÷ historical fin.)');
+    console.log('approxPsH:', approxPsH, '| approxPfH:', approxPfH);
+    console.log('fhMcapPs:', fhMcapPs, '| fhMcapPe:', fhMcapPe, '| flatMcap:', flatMcap);
+    console.groupEnd();
+    console.group('Series finales');
+    console.log('psH:', psH, '| pfH:', pfH, '| mcapH:', mcapH, '| evH:', evH);
     console.log('annualPx:', annualPx);
+    console.groupEnd();
     console.groupEnd();
   }
 

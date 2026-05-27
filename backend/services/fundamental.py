@@ -1100,25 +1100,30 @@ async def get_candles(ticker: str, resolution: str = "W", from_ts: int = None, t
     except Exception as e:
         logger.warning("[fund] yfinance candles %s: %s", tkr, e)
 
-    # 3. Finnhub fallback
+    # 3. Finnhub fallback — intenta W primero, luego D (más disponible en planes básicos)
     if settings.finnhub_token:
-        try:
-            now     = int(time.time())
-            from_ts = from_ts or (now - 5 * 365 * 86400)
-            params  = dict(symbol=tkr, resolution=resolution, to=to_ts or now)
-            params["from"] = from_ts  # 'from' es keyword Python → dict directo
-            async with _finnhub_client() as c:
-                r = await c.get("/stock/candle", params=params)  # token ya en X-Finnhub-Token header
-                r.raise_for_status()
-                data = r.json()
-            if data.get("s") == "ok":
-                return {
-                    "status":  "ok",
-                    "dates":   [pd.Timestamp(ts, unit="s").strftime("%Y-%m-%d") for ts in data.get("t", [])],
-                    "closes":  data.get("c", []),
-                }
-        except Exception as e:
-            logger.warning("[fund] Finnhub candles %s: %s", tkr, e)
+        now     = int(time.time())
+        from_ts = from_ts or (now - 5 * 365 * 86400)
+        to_ts_v = to_ts or now
+        resolutions = [resolution] if resolution == "D" else [resolution, "D"]
+        for fh_res in resolutions:
+            try:
+                params = dict(symbol=tkr, resolution=fh_res, to=to_ts_v)
+                params["from"] = from_ts
+                async with _finnhub_client() as c:
+                    r = await c.get("/stock/candle", params=params)
+                    r.raise_for_status()
+                    data = r.json()
+                logger.info("[fund] Finnhub candles %s res=%s: s=%s len=%d",
+                            tkr, fh_res, data.get("s"), len(data.get("t", [])))
+                if data.get("s") == "ok" and data.get("t"):
+                    return {
+                        "status":  "ok",
+                        "dates":   [pd.Timestamp(ts, unit="s").strftime("%Y-%m-%d") for ts in data["t"]],
+                        "closes":  data.get("c", []),
+                    }
+            except Exception as e:
+                logger.warning("[fund] Finnhub candles %s res=%s: %s", tkr, fh_res, e)
 
     return {"status": "no_data", "dates": [], "closes": []}
 
@@ -1148,11 +1153,22 @@ async def get_full_profile(ticker: str) -> dict:
         get_metrics(tkr),
     )
 
+    # Compute pe_forward si no vino de ninguna fuente:
+    # Finnhub quote (precio real-time) + yfinance eps_forward
+    metrics_out = dict(metrics)
+    if not metrics_out.get("pe_forward"):
+        price   = _nan_to_none(quote.get("price"))
+        eps_fwd = _nan_to_none(metrics_out.get("eps_forward"))
+        if price and eps_fwd and price > 0 and eps_fwd > 0:
+            metrics_out["pe_forward"] = round(price / eps_fwd, 2)
+            logger.info("[fund] pe_forward %s computed: %.2f / %.2f = %.2f",
+                        tkr, price, eps_fwd, metrics_out["pe_forward"])
+
     cfg = TICKER_CONFIG.get(tkr, {})
     return {
         "profile":     profile,
         "quote":       quote,
-        "metrics":     metrics,
+        "metrics":     metrics_out,
         "description": cfg.get("description") or profile.get("description", ""),
         "tags":        cfg.get("tags", []),
     }
