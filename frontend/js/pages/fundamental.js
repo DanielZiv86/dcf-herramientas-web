@@ -1036,102 +1036,100 @@ function _tabFinanciera(container, tk, data) {
    ══════════════════════════════════════════════════════════════════════════ */
 
 function _tabValuacion(container, tk, data, metrics, profile, candles) {
-  const mcapM   = profile.market_cap;          // millones USD
-  const shares  = profile.shares;              // millones de acciones
+  const mcapM   = profile.market_cap;
+  const shares  = profile.shares;
   const mcapUSD = mcapM ? mcapM*1e6 : null;
   const last    = data.length ? data[data.length-1] : null;
 
-  // EV: primero metrics (yfinance), fallback mcap − net_cash
+  // EV: metrics (yfinance) primero, fallback mcap − net_cash
   const ncM     = last?.net_cash ?? 0;
   const evM     = metrics.enterprise_value_m;
   const evUSD   = evM != null ? evM*1e6 : (mcapUSD != null ? mcapUSD - ncM*1e6 : null);
 
-  // EBITDA / FCF / Revenue TTM: metrics o último año del P&L como fallback
+  // EBITDA / FCF / Revenue TTM: metrics o último año P&L como fallback
   const ebitdaM = metrics.ebitda_ttm_m ?? last?.ebitda_est ?? null;
   const fcfTtmM = metrics.fcf_ttm_m ?? (last?.fcf && last.fcf > 0 ? last.fcf : null);
   const revTtmM = metrics.revenue_ttm_m ?? last?.revenue ?? null;
 
-  // Múltiplos TTM con fallbacks calculados
-  const pe = metrics.pe_ttm;                                                          // null si no rentable
-  const ps = metrics.ps_ttm   ?? (mcapM&&revTtmM&&revTtmM>0 ? mcapM/revTtmM : null);
+  // Múltiplos TTM
+  const pe = metrics.pe_ttm;
+  const ps = metrics.ps_ttm ?? (mcapM&&revTtmM&&revTtmM>0 ? mcapM/revTtmM : null);
   const pb = metrics.pb_annual;
 
-  // EV/EBITDA: metrics solo si positivo; fallback EV/ebitdaM
+  // EV/EBITDA: metrics si positivo, sino fallback calculado
   const _evEbitRaw = metrics.ev_ebitda_ttm;
   const evEbit = (_evEbitRaw != null && _evEbitRaw > 0 && _evEbitRaw < 999)
     ? _evEbitRaw
     : (evUSD != null && ebitdaM != null && ebitdaM > 0 ? evUSD/(ebitdaM*1e6) : null);
 
-  // EV/SALES: metrics solo si positivo; fallback EV/revTtmM
+  // EV/SALES: metrics si positivo, sino fallback calculado
   const _evSlsRaw = metrics.ev_sales_ttm;
   const evSales = (_evSlsRaw != null && _evSlsRaw > 0)
     ? _evSlsRaw
     : (evUSD != null && revTtmM != null && revTtmM > 0 ? evUSD/(revTtmM*1e6) : null);
 
-  // P/FCF: siempre calculado desde fcfTtmM
   const pfcf = (mcapM && fcfTtmM && fcfTtmM > 0) ? mcapM/fcfTtmM : null;
 
-  // Formateo: solo valores positivos y razonables muestran "X.Xx"; resto → "—"
+  // Validators / formatters
   const _ok  = v => v != null && Number.isFinite(+v) && +v > 0 && +v < 999;
   const _mF  = v => _ok(v) ? `${(+v).toFixed(1)}x` : '—';
+  const _has = arr => Array.isArray(arr) && arr.some(v => _ok(v));
 
-  // Flag nota EBITDA negativo
   const ebitdaIsNeg = ebitdaM != null && ebitdaM <= 0;
-
-  // KPI cards — etiquetas exactas del benchmark, sin CONSENSO ANALISTAS
-  const kpis=[
-    {l:'MARKET CAP', v:mcapUSD!=null?_fmtB(mcapUSD):'—', s:'',    c:'#22D3EE'},
-    {l:'EV',         v:evUSD!=null?_fmtB(evUSD):'—',     s:'',    c:'#7C3AED'},
-    {l:'P/E',        v:_mF(pe),                           s:'TTM', c:'#94A3B8'},
-    {l:'EV/EBITDA',  v:_mF(evEbit),                       s:'TTM', c:'#94A3B8'},
-    {l:'P/FCF',      v:_mF(pfcf),                         s:'TTM', c:'#94A3B8'},
-    {l:'P/S',        v:_mF(ps),                           s:'TTM', c:'#94A3B8'},
-  ];
 
   // 5 períodos FY22-FY26
   const d5   = data.slice(-5);
   const n5   = d5.length;
   const yrs5 = d5.map(d=>`FY${String(d.year).slice(2)}`);
 
-  // Múltiplos históricos reales (precio FY-end × shares) + extensión pb/ev_ebitda/ev_sales
+  // Múltiplos históricos reales (precio FY-end × shares)
   const hist5 = _computeHistMult(d5, candles, shares);
   const histEx = hist5.map((h,i)=>{
     const d  = d5[i];
     const hev= h.hist_mcap ? h.hist_mcap-(d.net_cash??0)*1e6 : null;
     return{...h,
-      pb:       (h.hist_mcap&&d.equity&&d.equity>0)           ? h.hist_mcap/(d.equity*1e6)   : null,
-      ev_ebitda:(hev&&d.ebitda_est&&d.ebitda_est>0)            ? hev/(d.ebitda_est*1e6)       : null,
-      ev_sales: (hev&&d.revenue&&d.revenue>0)                  ? hev/(d.revenue*1e6)          : null,
+      pb:       (h.hist_mcap&&d.equity&&d.equity>0)        ? h.hist_mcap/(d.equity*1e6)  : null,
+      ev_ebitda:(hev&&d.ebitda_est&&d.ebitda_est>0)         ? hev/(d.ebitda_est*1e6)      : null,
+      ev_sales: (hev&&d.revenue&&d.revenue>0)               ? hev/(d.revenue*1e6)         : null,
     };
   });
 
   // Arrays históricos — solo valores positivos y razonables
-  const peH     = histEx.map(h=>h.pe     &&h.pe    >0&&h.pe    <999 ? +h.pe.toFixed(1)       : null);
-  const psH     = histEx.map(h=>h.ps     &&h.ps    >0&&h.ps    <999 ? +h.ps.toFixed(1)       : null);
-  const pfH     = histEx.map(h=>h.pfcf   &&h.pfcf  >0&&h.pfcf  <999 ? +h.pfcf.toFixed(1)     : null);
-  const pbH     = histEx.map(h=>h.pb     &&h.pb    >0&&h.pb    <200 ? +h.pb.toFixed(1)       : null);
-  const evEbitH = histEx.map(h=>h.ev_ebitda&&h.ev_ebitda>0&&h.ev_ebitda<400 ? +h.ev_ebitda.toFixed(1): null);
-  const evSlsH  = histEx.map(h=>h.ev_sales &&h.ev_sales >0&&h.ev_sales <999 ? +h.ev_sales.toFixed(1) : null);
+  const peH     = histEx.map(h=>h.pe     &&h.pe    >0&&h.pe    <999 ? +h.pe.toFixed(1)          : null);
+  const psH     = histEx.map(h=>h.ps     &&h.ps    >0&&h.ps    <999 ? +h.ps.toFixed(1)          : null);
+  const pfH     = histEx.map(h=>h.pfcf   &&h.pfcf  >0&&h.pfcf  <999 ? +h.pfcf.toFixed(1)        : null);
+  const pbH     = histEx.map(h=>h.pb     &&h.pb    >0&&h.pb    <200 ? +h.pb.toFixed(1)          : null);
+  const evEbitH = histEx.map(h=>h.ev_ebitda&&h.ev_ebitda>0&&h.ev_ebitda<400 ? +h.ev_ebitda.toFixed(1) : null);
+  const evSlsH  = histEx.map(h=>h.ev_sales &&h.ev_sales >0&&h.ev_sales <999 ? +h.ev_sales.toFixed(1)  : null);
   const mcapH   = histEx.map(h=>h.hist_mcap ? +(h.hist_mcap/1e9).toFixed(1) : null);
   const evH     = histEx.map((h,i)=>{
     if(!h.hist_mcap)return null;
     return +((h.hist_mcap-(d5[i]?.net_cash??0)*1e6)/1e9).toFixed(1);
   });
 
-  // Promedio histórico de cada múltiplo desde precios reales
   const _avg5 = arr=>{ const v=arr.filter(x=>x!=null&&Number.isFinite(x)&&x>0); return v.length?v.reduce((a,b)=>a+b,0)/v.length:null; };
 
-  // Cards múltiplos — 2 filas de 3: P/E | EV/EBITDA | P/S / P/B | P/FCF | EV/SALES
-  const multDefs=[
-    {l:'P/E',      v:pe,      avg:_avg5(peH)},
-    {l:'EV/EBITDA',v:evEbit,  avg:_avg5(evEbitH)},
-    {l:'P/S',      v:ps,      avg:_avg5(psH)},
-    {l:'P/B',      v:pb,      avg:_avg5(pbH)},
-    {l:'P/FCF',    v:pfcf,    avg:_avg5(pfH)},
-    {l:'EV/SALES', v:evSales, avg:_avg5(evSlsH)},
+  // ── KPI row: P/E y EV/EBITDA solo aparecen si tienen valor válido ──────────
+  const kpiAll = [
+    {l:'MARKET CAP', v:mcapUSD!=null?_fmtB(mcapUSD):'—', s:'',    c:'#22D3EE'},
+    {l:'EV',         v:evUSD!=null?_fmtB(evUSD):'—',     s:'',    c:'#7C3AED'},
+    ..._ok(pe)     ? [{l:'P/E',       v:_mF(pe),     s:'TTM', c:'#94A3B8'}] : [],
+    ..._ok(evEbit) ? [{l:'EV/EBITDA', v:_mF(evEbit), s:'TTM', c:'#94A3B8'}] : [],
+    {l:'P/FCF',      v:_mF(pfcf),                         s:'TTM', c:'#94A3B8'},
+    {l:'P/S',        v:_mF(ps),                           s:'TTM', c:'#94A3B8'},
   ];
 
-  const multCards=multDefs.map(({l,v,avg})=>{
+  // ── Cards de múltiplos: solo si tiene valor actual O histórico válido ───────
+  const multDefs = [
+    {l:'P/E',      v:pe,      avg:_avg5(peH),     h:peH},
+    {l:'EV/EBITDA',v:evEbit,  avg:_avg5(evEbitH), h:evEbitH},
+    {l:'P/S',      v:ps,      avg:_avg5(psH),     h:psH},
+    {l:'P/B',      v:pb,      avg:_avg5(pbH),     h:pbH},
+    {l:'P/FCF',    v:pfcf,    avg:_avg5(pfH),     h:pfH},
+    {l:'EV/SALES', v:evSales, avg:_avg5(evSlsH),  h:evSlsH},
+  ].filter(m => _ok(m.v) || _has(m.h));
+
+  const multCards = multDefs.map(({l,v,avg})=>{
     const str = _ok(v) ? `${(+v).toFixed(1)}x` : '—';
     let comp  = `<span style="color:#94A3B8;font-size:.60rem;font-family:${_MONO}">N/D</span>`;
     if(_ok(v) && avg!=null && avg>0){
@@ -1147,76 +1145,87 @@ function _tabValuacion(container, tk, data, metrics, profile, candles) {
     </div>`;
   });
 
-  // Serie anual de precio (cierre al 31-dic de cada FY)
+  // Serie anual de precio
   const annualPx = _buildAnnualPriceSeries(candles, d5.map(d=>d.year));
   const pxLast   = annualPx.filter(v=>v!=null).at(-1);
 
-  // Sub-headers de charts (formato benchmark: valor primero)
+  // Sub-headers
   const peSub   = `P/E ${_mF(pe)}`;
   const psSub   = `P/S ${_mF(ps)}`;
   const mcapSub = mcapUSD!=null ? `${_fmtB(mcapUSD)} Mkt Cap` : '';
   const pxSub   = pxLast!=null  ? `$${pxLast.toFixed(2)}`    : '';
 
-  container.innerHTML=`
-    <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-bottom:1rem">
-      ${kpis.map(k=>_kpiN(k.l,k.v,k.s,null,k.c)).join('')}
-    </div>
+  // ── Chart P/E VS EV/EBITDA: solo si alguna serie tiene datos ───────────────
+  const showPeChart = _has(peH) || _has(evEbitH);
 
+  // ── Grid de charts dinámico: omitir P/E si no hay datos ────────────────────
+  const chartItems = [
+    ...(showPeChart ? [_cPanelN('af-c-pe',   'P/E VS EV/EBITDA',    peSub)] : []),
+    _cPanelN('af-c-pspf', 'P/S Y P/FCF',          psSub),
+    _cPanelN('af-c-mcap', 'MARKET CAP Y EV ($B)', mcapSub),
+    _cPanelN('af-c-px',   'PRECIO HISTÓRICO',      pxSub),
+  ];
+
+  // Si hay número impar de charts, el último ocupa las dos columnas
+  const chartHTML = chartItems.map((html, i) => {
+    if(chartItems.length % 2 !== 0 && i === chartItems.length - 1)
+      return `<div style="grid-column:1/-1">${html}</div>`;
+    return html;
+  }).join('');
+
+  container.innerHTML=`
+    <div style="display:grid;grid-template-columns:repeat(${kpiAll.length},minmax(0,1fr));gap:8px;margin-bottom:1rem">
+      ${kpiAll.map(k=>_kpiN(k.l,k.v,k.s,null,k.c)).join('')}
+    </div>
+    ${multCards.length ? `
     <div style="display:flex;align-items:center;gap:6px;margin:4px 0 10px">
       <span style="width:6px;height:6px;border-radius:50%;background:#22D3EE;display:inline-block;flex-shrink:0"></span>
       <span style="font-size:9px;font-weight:700;letter-spacing:.10em;text-transform:uppercase;color:#94A3B8;font-family:${_MONO}">MULTIPLES VS HISTORICO</span>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:14px">
       ${multCards.join('')}
-    </div>
-
+    </div>` : ''}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      ${_cPanelN('af-c-pe',   'P/E VS EV/EBITDA',    peSub)}
-      ${_cPanelN('af-c-pspf', 'P/S Y P/FCF',          psSub)}
-      ${_cPanelN('af-c-mcap', 'MARKET CAP Y EV ($B)', mcapSub)}
-      ${_cPanelN('af-c-px',   'PRECIO HISTÓRICO',      pxSub)}
+      ${chartHTML}
     </div>
-    ${evEbit!=null&&Math.abs(evEbit)>999?`<div style="font-family:${_MONO};font-size:.58rem;color:#4A5F75;margin-top:6px">¹ EV/EBITDA no aplica cuando EBITDA estimado es negativo.</div>`:''}`;
+    ${ebitdaIsNeg&&!_ok(evEbit)?`<div style="font-family:${_MONO};font-size:.58rem;color:#4A5F75;margin-top:6px">¹ EV/EBITDA no aplica cuando EBITDA estimado es negativo.</div>`:''}`;
 
-  // Chart 1 — P/E VS EV/EBITDA: líneas cyan + violeta punteada · nunca "sin datos"
-  _ch('af-c-pe', ch=>{
+  if(showPeChart) _ch('af-c-pe', ch=>{
     ch.setOption({
       ..._nBaseN(yrs5),
       yAxis:[_nYaxXN()],
       legend:_nLegN(['P/E','EV/EBITDA']),
       series:[
-        {name:'P/E',       type:'line',data:peH,     ..._ls('#22D3EE'),  smooth:false},
-        {name:'EV/EBITDA', type:'line',data:evEbitH, ..._ls2('#7C3AED'), smooth:false},
+        {name:'P/E',      type:'line',data:peH,    ..._ls('#22D3EE'), smooth:false},
+        {name:'EV/EBITDA',type:'line',data:evEbitH,..._ls2('#7C3AED'),smooth:false},
       ],
       tooltip:{..._nTtN(),valueFormatter:v=>v!=null?`${v.toFixed(1)}x`:'—'},
     });
   }, false);
 
-  // Chart 2 — P/S Y P/FCF: P/S cyan sólida · P/FCF violeta punteada
   _ch('af-c-pspf', ch=>{
     ch.setOption({
       ..._nBaseN(yrs5),
       yAxis:[_nYaxXN()],
       legend:_nLegN(['P/S','P/FCF']),
       series:[
-        {name:'P/S',  type:'line',data:psH, ..._ls('#22D3EE'),  smooth:false},
-        {name:'P/FCF',type:'line',data:pfH, ..._ls2('#7C3AED'), smooth:false},
+        {name:'P/S',  type:'line',data:psH,..._ls('#22D3EE'), smooth:false},
+        {name:'P/FCF',type:'line',data:pfH,..._ls2('#7C3AED'),smooth:false},
       ],
       tooltip:{..._nTtN(),valueFormatter:v=>v!=null?`${v.toFixed(1)}x`:'—'},
     });
   }, false);
 
-  // Chart 3 — MARKET CAP Y EV ($B): barras cyan (último sólido, hist 20%) · línea EV violeta
   _ch('af-c-mcap', ch=>{
     ch.setOption({
       ..._nBaseN(yrs5),
       yAxis:[_nYaxBN()],
       legend:_nLegN(['Market Cap','Enterprise Value']),
       series:[
-        {name:'Market Cap',       type:'bar',barCategoryGap:'38%',
+        {name:'Market Cap',      type:'bar',barCategoryGap:'38%',
           itemStyle:{borderRadius:[3,3,0,0]},
           data:mcapH.map((v,i)=>({value:v,itemStyle:{color:i===n5-1?'#22D3EE':'rgba(34,211,238,.20)'}}))},
-        {name:'Enterprise Value', type:'line',data:evH,
+        {name:'Enterprise Value',type:'line',data:evH,
           smooth:false,symbol:'circle',symbolSize:4,
           lineStyle:{color:'#7C3AED',width:1.8},itemStyle:{color:'#7C3AED'}},
       ],
@@ -1224,7 +1233,6 @@ function _tabValuacion(container, tk, data, metrics, profile, candles) {
     });
   }, false);
 
-  // Chart 4 — PRECIO HISTÓRICO: línea violeta suavizada + fill · puntos anuales FY
   _ch('af-c-px', ch=>{
     ch.setOption({
       ..._nBaseN(yrs5),
