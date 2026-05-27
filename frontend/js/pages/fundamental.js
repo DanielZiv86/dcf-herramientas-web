@@ -517,6 +517,29 @@ function _fyStr(last) {
 
 function _tabEmpresa(container, tk, profile, quote, metrics, desc, tags, data) {
   const last = data.length ? data[data.length-1] : null;
+  const mcapM = profile.market_cap;  // millones USD
+
+  // Primer valor no-nulo, finito y distinto de cero
+  const _pv = (...vs) => { for(const v of vs){ const n=+v; if(v!=null&&Number.isFinite(n)&&n!==0) return n; } return null; };
+
+  // Ratios calculados desde estados financieros como fallback cuando metrics es vacío
+  const _pe   = _pv(metrics.pe_ttm,
+                    mcapM&&last?.net_income>0 ? mcapM/last.net_income : null);
+  const _pef  = _pv(metrics.pe_forward);
+  const _ps   = _pv(metrics.ps_ttm,
+                    mcapM&&last?.revenue>0    ? mcapM/last.revenue    : null);
+  const _pb   = _pv(metrics.pb_annual);
+  const _eveb = _pv(metrics.ev_ebitda_ttm);
+  const _evsl = _pv(metrics.ev_sales_ttm);
+  const _roe  = _pv(metrics.roe_ttm,
+                    last?.net_income&&last?.equity>0    ? last.net_income/last.equity*100       : null);
+  const _roa  = _pv(metrics.roa_ttm,
+                    last?.net_income&&last?.total_assets>0 ? last.net_income/last.total_assets*100 : null);
+  const _gm   = _pv(metrics.gross_margin_ttm,  last?.gross_margin);
+  const _em   = _pv(metrics.ebitda_margin_ttm, last?.ebitda_margin);
+  const _nm   = _pv(metrics.net_margin_ttm,    last?.net_margin);
+  const _beta = _pv(metrics.beta);
+
   const exchange = (profile.exchange||'—').replace('NASDAQ NMS - GLOBAL MARKET','NASDAQ');
   const facts = [
     ['Sector',    profile.sector||'—'],
@@ -533,21 +556,22 @@ function _tabEmpresa(container, tk, profile, quote, metrics, desc, tags, data) {
   ];
 
   const ratios = [
-    ['P/E TTM',     metrics.pe_ttm,      'x'],
-    ['P/E Forward', metrics.pe_forward,  'x'],
-    ['P/S TTM',     metrics.ps_ttm,      'x'],
-    ['P/B',         metrics.pb_annual,   'x'],
-    ['EV/EBITDA',   metrics.ev_ebitda_ttm,'x',true],
-    ['EV/Sales',    metrics.ev_sales_ttm,'x'],
-    ['ROE TTM',     metrics.roe_ttm,     '%'],
-    ['ROA TTM',     metrics.roa_ttm,     '%'],
-    ['Gross Margin',metrics.gross_margin_ttm,'%'],
-    ['EBITDA Margin',metrics.ebitda_margin_ttm,'%'],
-    ['Net Margin',  metrics.net_margin_ttm,'%'],
-    ['Beta',        metrics.beta,         ''],
+    ['P/E TTM',      _pe,   'x'],
+    ['P/E Forward',  _pef,  'x'],
+    ['P/S TTM',      _ps,   'x'],
+    ['P/B',          _pb,   'x'],
+    ['EV/EBITDA',    _eveb, 'x', true],
+    ['EV/Sales',     _evsl, 'x'],
+    ['ROE TTM',      _roe,  '%'],
+    ['ROA TTM',      _roa,  '%'],
+    ['Gross Margin', _gm,   '%'],
+    ['EBITDA Margin',_em,   '%'],
+    ['Net Margin',   _nm,   '%'],
+    ['Beta',         _beta, ''],
   ].map(([l,val,suf,clamp])=>{
     const v   = val!=null?Number(val):null;
-    const isNa= clamp&&v!=null&&Math.abs(v)>500;
+    // clamp: EV/EBITDA → N/A si negativo o absurdo (EBITDA < 0 o múltiplo > 999)
+    const isNa= clamp&&v!=null&&(v<=0||Math.abs(v)>999);
     const str = isNa?'N/A':(v!=null?`${v.toFixed(1)}${suf}`:'—');
     const col = suf==='%'?(v>0?_GR:v<0?_RE:'#7F93AD'):'#C8D8E8';
     return `<div style="background:rgba(11,18,32,.7);border:1px solid ${_BOR};
@@ -1226,10 +1250,14 @@ function _tabValuacion(container, tk, data, metrics, profile, candles) {
   const fcfTtmM = metrics.fcf_ttm_m ?? (last?.fcf && last.fcf > 0 ? last.fcf : null);
   const revTtmM = metrics.revenue_ttm_m ?? last?.revenue ?? null;
 
-  // Múltiplos TTM
-  const pe = metrics.pe_ttm;
-  const ps = metrics.ps_ttm ?? (mcapM&&revTtmM&&revTtmM>0 ? mcapM/revTtmM : null);
-  const pb = metrics.pb_annual;
+  // Múltiplos TTM — con fallback desde financials si metrics es vacío
+  const _pv2 = (...vs) => { for(const v of vs){ const n=+v; if(v!=null&&Number.isFinite(n)&&n>0) return n; } return null; };
+  const pe = _pv2(metrics.pe_ttm,
+                  mcapM&&last?.net_income>0 ? mcapM/last.net_income : null);
+  const ps = _pv2(metrics.ps_ttm,
+                  mcapM&&revTtmM&&revTtmM>0 ? mcapM/revTtmM : null,
+                  mcapM&&last?.revenue>0     ? mcapM/last.revenue   : null);
+  const pb = _pv2(metrics.pb_annual);
 
   // EV/EBITDA: metrics si positivo, sino fallback calculado
   const _evEbitRaw = metrics.ev_ebitda_ttm;
@@ -1243,7 +1271,8 @@ function _tabValuacion(container, tk, data, metrics, profile, candles) {
     ? _evSlsRaw
     : (evUSD != null && revTtmM != null && revTtmM > 0 ? evUSD/(revTtmM*1e6) : null);
 
-  const pfcf = (mcapM && fcfTtmM && fcfTtmM > 0) ? mcapM/fcfTtmM : null;
+  const pfcf = _pv2(mcapM&&fcfTtmM&&fcfTtmM>0 ? mcapM/fcfTtmM : null,
+                    mcapM&&last?.fcf>0          ? mcapM/last.fcf : null);
 
   // Validators / formatters
   const _ok  = v => v != null && Number.isFinite(+v) && +v > 0 && +v < 999;
@@ -1257,8 +1286,15 @@ function _tabValuacion(container, tk, data, metrics, profile, candles) {
   const n5   = d5.length;
   const yrs5 = d5.map(d=>`FY${String(d.year).slice(2)}`);
 
+  // Shares fallback: estimar desde mcapM / precio actual del último candle
+  let sharesEst = shares;
+  if (!sharesEst && mcapM && candles?.closes?.length) {
+    const lastPx = candles.closes[candles.closes.length - 1];
+    if (lastPx && lastPx > 0) sharesEst = mcapM / lastPx;  // ambos en unidades homogéneas → millones
+  }
+
   // Múltiplos históricos reales (precio FY-end × shares)
-  const hist5 = _computeHistMult(d5, candles, shares);
+  const hist5 = _computeHistMult(d5, candles, sharesEst);
   const histEx = hist5.map((h,i)=>{
     const d  = d5[i];
     const hev= h.hist_mcap ? h.hist_mcap-(d.net_cash??0)*1e6 : null;

@@ -175,6 +175,23 @@ def _nan_to_none(v):
         return None
 
 
+def _yield_pct(v) -> Optional[float]:
+    """
+    Convierte dividendYield de yfinance a %.
+    yfinance puede retornar fracción (0.0087 = 0.87%) o ya en % (0.87) según versión.
+    Umbral 0.5: valores por debajo se tratan como fracción (×100); por encima, ya son %.
+    Cubre el caso práctico: fracción máx realista ~45% → 0.45 < 0.5.
+    """
+    v2 = _nan_to_none(v)
+    if v2 is None or v2 <= 0:
+        return None
+    if v2 < 0.5:
+        return round(v2 * 100, 2)
+    elif v2 <= 100:
+        return round(v2, 2)
+    return None
+
+
 def _safe_float(v, divisor=1.0) -> Optional[float]:
     """Convierte v a float dividido por divisor; NaN → None."""
     v2 = _nan_to_none(v)
@@ -538,9 +555,7 @@ def _profile_yfinance_sync(ticker: str) -> dict:
         info = yf.Ticker(ticker).info or {}
         mcap = info.get("marketCap")
         shares = info.get("sharesOutstanding")
-        dy_raw = info.get("dividendYield") or 0
-        # yfinance devuelve dividendYield como fracción (0.037 = 3.7%)
-        dy_pct = round(dy_raw * 100, 2) if 0 < dy_raw < 1 else (round(dy_raw, 2) if dy_raw > 0 else None)
+        dy_pct = _yield_pct(info.get("dividendYield"))
 
         return {
             "name":         info.get("longName") or info.get("shortName") or ticker,
@@ -612,7 +627,7 @@ def _metrics_yfinance_sync(ticker: str) -> dict:
             "revenue_ttm_m":       val(info.get("totalRevenue"), 1e6),   # millones
             "ebitda_ttm_m":        val(info.get("ebitda"), 1e6),          # millones
             "fcf_ttm_m":           val(info.get("freeCashflow"), 1e6),    # millones
-            "dividend_yield":      pct(info.get("dividendYield")),
+            "dividend_yield":      _yield_pct(info.get("dividendYield")),
             "target_price":        target_price,
             "upside":              upside,
             "recommendation":      info.get("recommendationKey", ""),
@@ -621,6 +636,63 @@ def _metrics_yfinance_sync(ticker: str) -> dict:
         }
     except Exception as e:
         logger.warning("[fund] yfinance metrics %s failed: %s", ticker, e)
+        return {}
+
+
+# ── Finnhub: métricas desde /stock/metric (más fiable que yfinance en prod) ──────
+
+async def _metrics_finnhub_async(ticker: str) -> dict:
+    """
+    Métricas fundamentales desde Finnhub /stock/metric?symbol=X&metric=all.
+    Ventaja: evita rate-limits de Yahoo Finance; valores ya en % (sin conversión).
+    """
+    if not settings.finnhub_token:
+        return {}
+    try:
+        data = await _fh_get("/stock/metric", symbol=ticker, metric="all")
+        m = data.get("metric", {})
+        if not m:
+            return {}
+
+        def gm(*keys) -> Optional[float]:
+            for k in keys:
+                v = _nan_to_none(m.get(k))
+                if v is not None:
+                    return v
+            return None
+
+        return {
+            "pe_ttm":               gm("peExclExtraTTM", "peNormalizedAnnual"),
+            "pe_forward":           None,           # no en /stock/metric básico
+            "ps_ttm":               gm("psTTM", "psAnnual"),
+            "pb_annual":            gm("pbAnnual", "pbQuarterly"),
+            "ev_ebitda_ttm":        gm("evToEbitdaTTM"),
+            "ev_sales_ttm":         gm("evToRevenueTTM"),
+            "beta":                 gm("beta"),
+            "week52_high":          gm("52WeekHigh"),
+            "week52_low":           gm("52WeekLow"),
+            "eps_ttm":              gm("epsTTM", "epsNormalizedAnnual"),
+            "eps_forward":          None,
+            "roe_ttm":              gm("roeTTM"),           # ya en %
+            "roa_ttm":              gm("roaTTM"),           # ya en %
+            "roic_ttm":             None,
+            "gross_margin_ttm":     gm("grossMarginTTM", "grossMarginAnnual"),  # ya en %
+            "ebitda_margin_ttm":    None,           # no en basic /stock/metric
+            "net_margin_ttm":       gm("netMarginTTM"),     # ya en %
+            "operating_margin_ttm": gm("operatingMarginTTM"),
+            "fcf_margin_ttm":       None,
+            "revenue_ttm_m":        None,
+            "ebitda_ttm_m":         None,
+            "fcf_ttm_m":            None,
+            "dividend_yield":       gm("dividendYieldIndicatedAnnual"),  # ya en %
+            "target_price":         None,
+            "upside":               None,
+            "recommendation":       "",
+            "num_analysts":         None,
+            "enterprise_value_m":   None,
+        }
+    except Exception as e:
+        logger.warning("[fund] Finnhub metrics %s: %s", ticker, e)
         return {}
 
 
@@ -879,19 +951,51 @@ async def get_quote(ticker: str) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Metrics (yfinance primario — más completo que Finnhub free tier)
+# Metrics (Finnhub primario + yfinance complemento)
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def get_metrics(ticker: str) -> dict:
+    """
+    Métricas fundamentales: Finnhub como fuente primaria (evita rate-limits de Yahoo),
+    yfinance como complemento para campos no disponibles en Finnhub
+    (pe_forward, ebitda_ttm_m, enterprise_value_m, fcf_ttm_m, target_price, etc.).
+    """
     tkr = ticker.upper()
+
+    # Finnhub primario
+    fh_metrics: dict = {}
+    if settings.finnhub_token:
+        try:
+            fh_metrics = await _metrics_finnhub_async(tkr)
+        except Exception as e:
+            logger.warning("[fund] Finnhub metrics %s: %s", tkr, e)
+
+    # yfinance complemento
+    yf_metrics: dict = {}
     try:
-        metrics = await asyncio.get_event_loop().run_in_executor(
+        yf_metrics = await asyncio.get_event_loop().run_in_executor(
             _yf_pool, _metrics_yfinance_sync, tkr
         )
-        return metrics
     except Exception as e:
-        logger.warning("[fund] metrics %s: %s", tkr, e)
+        logger.warning("[fund] yfinance metrics %s: %s", tkr, e)
+
+    if not yf_metrics and not fh_metrics:
         return {}
+
+    # Finnhub sobrescribe los ratios clave donde es más fiable
+    _FH_PRIORITY = {
+        "pe_ttm", "ps_ttm", "pb_annual", "ev_ebitda_ttm", "ev_sales_ttm",
+        "beta", "week52_high", "week52_low", "eps_ttm",
+        "roe_ttm", "roa_ttm", "gross_margin_ttm", "net_margin_ttm",
+        "operating_margin_ttm", "dividend_yield",
+    }
+    result = {**yf_metrics}
+    for key in _FH_PRIORITY:
+        fh_val = fh_metrics.get(key)
+        if fh_val is not None:
+            result[key] = fh_val
+
+    return result
 
 
 # ══════════════════════════════════════════════════════════════════════════════
