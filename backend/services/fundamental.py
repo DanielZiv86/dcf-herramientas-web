@@ -521,17 +521,41 @@ def _candles_yfinance_sync(ticker: str, years: int = 5) -> dict:
     """Histórico de precios semanal via yfinance. Primary source para velas."""
     try:
         import yfinance as yf
-        df = yf.download(ticker, period=f"{years}y", interval="1wk",
-                         auto_adjust=True, progress=False, multi_level_index=False)
+        # multi_level_index=False evita MultiIndex en yfinance ≥0.2.40;
+        # versiones anteriores lo ignoran con TypeError — manejamos ambos casos.
+        try:
+            df = yf.download(ticker, period=f"{years}y", interval="1wk",
+                             auto_adjust=True, progress=False, multi_level_index=False)
+        except TypeError:
+            df = yf.download(ticker, period=f"{years}y", interval="1wk",
+                             auto_adjust=True, progress=False)
+
         if df is None or df.empty:
             return {"status": "no_data", "dates": [], "closes": []}
 
         df = df.reset_index()
-        # Normalizar columnas
-        df.columns = [str(c).lower() for c in df.columns]
-        date_col  = next((c for c in df.columns if "date" in c), None)
-        close_col = next((c for c in df.columns if "close" in c), None)
+
+        # Normalizar columnas — manejar MultiIndex (columnas tipo ('Close', 'NVDA'))
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [col[0].lower() if isinstance(col, tuple) else str(col).lower()
+                          for col in df.columns]
+        else:
+            df.columns = [str(c).lower() for c in df.columns]
+
+        # Buscar columna fecha con nombre exacto primero, luego parcial
+        date_col = next((c for c in df.columns if c in ("date", "datetime", "timestamp")), None)
+        if not date_col:
+            date_col = next((c for c in df.columns if "date" in c), None)
+
+        # Buscar columna close evitando strings tipo "('close', 'nvda')"
+        close_col = next((c for c in df.columns if c == "close"), None)
+        if not close_col:
+            close_col = next((c for c in df.columns if "close" in c and "(" not in c), None)
+        if not close_col:
+            close_col = next((c for c in df.columns if "close" in c), None)
+
         if not date_col or not close_col:
+            logger.warning("[fund] yfinance candles %s: cols not found in %s", ticker, list(df.columns))
             return {"status": "no_data", "dates": [], "closes": []}
 
         df = df[[date_col, close_col]].dropna()
@@ -661,6 +685,20 @@ async def _metrics_finnhub_async(ticker: str) -> dict:
                     return v
             return None
 
+        def parse_annual_series(key: str) -> Optional[list]:
+            """Convierte series.annual[key] → [{year, v}] para charts históricos."""
+            items = data.get("series", {}).get("annual", {}).get(key, [])
+            result = []
+            for item in items:
+                period = item.get("period", "")
+                v = _nan_to_none(item.get("v"))
+                if period and v is not None:
+                    try:
+                        result.append({"year": int(str(period)[:4]), "v": v})
+                    except Exception:
+                        pass
+            return result if result else None
+
         return {
             "pe_ttm":               gm("peExclExtraTTM", "peNormalizedAnnual"),
             "pe_forward":           None,           # no en /stock/metric básico
@@ -690,6 +728,11 @@ async def _metrics_finnhub_async(ticker: str) -> dict:
             "recommendation":       "",
             "num_analysts":         None,
             "enterprise_value_m":   None,
+            # Series históricas anuales — para charts de Valuación sin candles
+            "hist_pe":              parse_annual_series("peNormalizedAnnual"),
+            "hist_ps":              parse_annual_series("psAnnual"),
+            "hist_pb":              parse_annual_series("pbAnnual"),
+            "hist_ev_ebitda":       parse_annual_series("evToEbitdaAnnual"),
         }
     except Exception as e:
         logger.warning("[fund] Finnhub metrics %s: %s", ticker, e)
@@ -886,12 +929,21 @@ async def get_profile(ticker: str) -> dict:
     curated_info = TICKER_INFO.get(tkr, {})
     curated_cfg  = TICKER_CONFIG.get(tkr, {})
 
-    # Prioridad: Finnhub para datos en tiempo real, yfinance para descripción/empleados
+    # Finnhub employeeTotal puede venir como string — normalizar a int
+    fh_employees = fh_data.get("employeeTotal")
+    if fh_employees is not None:
+        try:
+            fh_employees = int(fh_employees)
+        except (ValueError, TypeError):
+            fh_employees = None
+
+    # yfinance sector es más amplio ("Technology") que finnhubIndustry ("Semiconductors")
+    # industry: yfinance primero; fallback a Finnhub gind/finnhubIndustry si yfinance falla
     return {
         "ticker":       tkr,
         "name":         fh_data.get("name") or yf_data.get("name") or curated_info.get("name", tkr),
-        "sector":       fh_data.get("finnhubIndustry") or yf_data.get("sector") or curated_info.get("sector", ""),
-        "industry":     yf_data.get("industry", ""),
+        "sector":       yf_data.get("sector") or fh_data.get("finnhubIndustry") or curated_info.get("sector", ""),
+        "industry":     yf_data.get("industry") or fh_data.get("gind") or fh_data.get("finnhubIndustry") or "",
         "exchange":     fh_data.get("exchange") or yf_data.get("exchange", ""),
         "market_cap":   fh_data.get("marketCapitalization") or yf_data.get("market_cap"),
         "shares":       fh_data.get("shareOutstanding") or yf_data.get("shares"),
@@ -900,7 +952,7 @@ async def get_profile(ticker: str) -> dict:
         "country":      fh_data.get("country", "US") or yf_data.get("country", "US"),
         "currency":     fh_data.get("currency", "USD") or yf_data.get("currency", "USD"),
         "ipo_date":     fh_data.get("ipo", "") or yf_data.get("ipo_date", ""),
-        "employees":    yf_data.get("employees") or fh_data.get("employeeTotal"),
+        "employees":    yf_data.get("employees") or fh_employees,
         "description":  curated_cfg.get("description") or yf_data.get("description", ""),
         "dividend_yield": yf_data.get("dividend_yield"),
     }
@@ -995,6 +1047,11 @@ async def get_metrics(ticker: str) -> dict:
         if fh_val is not None:
             result[key] = fh_val
 
+    # Series históricas anuales de Finnhub — no disponibles en yfinance
+    for hist_key in ("hist_pe", "hist_ps", "hist_pb", "hist_ev_ebitda"):
+        if fh_metrics.get(hist_key):
+            result[hist_key] = fh_metrics[hist_key]
+
     return result
 
 
@@ -1051,7 +1108,7 @@ async def get_candles(ticker: str, resolution: str = "W", from_ts: int = None, t
             params  = dict(symbol=tkr, resolution=resolution, to=to_ts or now)
             params["from"] = from_ts  # 'from' es keyword Python → dict directo
             async with _finnhub_client() as c:
-                r = await c.get("/stock/candle", params={**params, "token": settings.finnhub_token})
+                r = await c.get("/stock/candle", params=params)  # token ya en X-Finnhub-Token header
                 r.raise_for_status()
                 data = r.json()
             if data.get("s") == "ok":

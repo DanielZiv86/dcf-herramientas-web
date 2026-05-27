@@ -529,8 +529,18 @@ function _tabEmpresa(container, tk, profile, quote, metrics, desc, tags, data) {
   const _ps   = _pv(metrics.ps_ttm,
                     mcapM&&last?.revenue>0    ? mcapM/last.revenue    : null);
   const _pb   = _pv(metrics.pb_annual);
-  const _eveb = _pv(metrics.ev_ebitda_ttm);
-  const _evsl = _pv(metrics.ev_sales_ttm);
+
+  // EV y TTM figures para fallback de EV/EBITDA y EV/Sales
+  const _evMv     = metrics.enterprise_value_m;
+  const _ncM      = last?.net_cash ?? 0;
+  const _evUSDv   = _evMv != null ? _evMv*1e6 : (mcapM != null ? mcapM*1e6 - _ncM*1e6 : null);
+  const _ebitdaMv = metrics.ebitda_ttm_m ?? last?.ebitda_est ?? null;
+  const _revTtmMv = metrics.revenue_ttm_m ?? last?.revenue ?? null;
+
+  const _eveb = _pv(metrics.ev_ebitda_ttm,
+                    _evUSDv&&_ebitdaMv&&_ebitdaMv>0 ? _evUSDv/(_ebitdaMv*1e6) : null);
+  const _evsl = _pv(metrics.ev_sales_ttm,
+                    _evUSDv&&_revTtmMv&&_revTtmMv>0 ? _evUSDv/(_revTtmMv*1e6) : null);
   const _roe  = _pv(metrics.roe_ttm,
                     last?.net_income&&last?.equity>0    ? last.net_income/last.equity*100       : null);
   const _roa  = _pv(metrics.roa_ttm,
@@ -549,7 +559,7 @@ function _tabEmpresa(container, tk, profile, quote, metrics, desc, tags, data) {
     ['Moneda',    profile.currency||'—'],
     ['IPO',       (profile.ipo_date||'').slice(0,10)||'—'],
     ['Empleados', profile.employees?`~${Number(profile.employees).toLocaleString('es-AR')}`:'—'],
-    ['Div. Yield',profile.dividend_yield!=null?`${profile.dividend_yield.toFixed(2)}%`:'—'],
+    ['Div. Yield',(()=>{ const dy=profile.dividend_yield??metrics.dividend_yield; return dy!=null?`${Number(dy).toFixed(2)}%`:'—'; })()],
     ['FY End',    _fyStr(last)],
     ['Website',   profile.website?`<a href="${profile.website}" target="_blank"
       style="color:${_CY};text-decoration:none;font-size:.76rem">${profile.website.replace('https://','')}</a>`:'—'],
@@ -1234,6 +1244,17 @@ function _tabFinanciera(container, tk, data) {
    TAB: VALUACIÓN — v2 benchmark-match
    ══════════════════════════════════════════════════════════════════════════ */
 
+// Convierte hist_* de Finnhub [{year, v}] → array paralelo a `years`
+function _fhSeries(hist, years) {
+  if (!Array.isArray(hist) || !hist.length) return years.map(() => null);
+  const byYear = {};
+  hist.forEach(h => { if (h?.year != null) byYear[h.year] = h.v; });
+  return years.map(yr => {
+    const v = byYear[yr];
+    return (v != null && Number.isFinite(+v) && +v > 0 && +v < 999) ? +v : null;
+  });
+}
+
 function _tabValuacion(container, tk, data, metrics, profile, candles) {
   const mcapM   = profile.market_cap;
   const shares  = profile.shares;
@@ -1305,13 +1326,26 @@ function _tabValuacion(container, tk, data, metrics, profile, candles) {
     };
   });
 
-  // Arrays históricos — solo valores positivos y razonables
-  const peH     = histEx.map(h=>h.pe     &&h.pe    >0&&h.pe    <999 ? +h.pe.toFixed(1)          : null);
-  const psH     = histEx.map(h=>h.ps     &&h.ps    >0&&h.ps    <999 ? +h.ps.toFixed(1)          : null);
-  const pfH     = histEx.map(h=>h.pfcf   &&h.pfcf  >0&&h.pfcf  <999 ? +h.pfcf.toFixed(1)        : null);
-  const pbH     = histEx.map(h=>h.pb     &&h.pb    >0&&h.pb    <200 ? +h.pb.toFixed(1)          : null);
-  const evEbitH = histEx.map(h=>h.ev_ebitda&&h.ev_ebitda>0&&h.ev_ebitda<400 ? +h.ev_ebitda.toFixed(1) : null);
-  const evSlsH  = histEx.map(h=>h.ev_sales &&h.ev_sales >0&&h.ev_sales <999 ? +h.ev_sales.toFixed(1)  : null);
+  // Arrays históricos — Finnhub historical (primario, no depende de candles) + computed fallback
+  const fhYears = d5.map(d => d.year);
+  const fhPeH   = _fhSeries(metrics.hist_pe,       fhYears);
+  const fhPsH   = _fhSeries(metrics.hist_ps,        fhYears);
+  const fhPbH   = _fhSeries(metrics.hist_pb,        fhYears);
+  const fhEvH   = _fhSeries(metrics.hist_ev_ebitda, fhYears);
+
+  // Computed desde candles × shares (fallback cuando Finnhub no tiene series)
+  const compPeH     = histEx.map(h=>h.pe      &&h.pe     >0&&h.pe     <999?+h.pe.toFixed(1)        :null);
+  const compPsH     = histEx.map(h=>h.ps      &&h.ps     >0&&h.ps     <999?+h.ps.toFixed(1)        :null);
+  const compPbH     = histEx.map(h=>h.pb      &&h.pb     >0&&h.pb     <200?+h.pb.toFixed(1)        :null);
+  const compEvEbitH = histEx.map(h=>h.ev_ebitda&&h.ev_ebitda>0&&h.ev_ebitda<400?+h.ev_ebitda.toFixed(1):null);
+
+  // Merge: Finnhub historical primero, computed desde candles como fallback
+  const peH     = fhPeH.map((v,i)  => v ?? compPeH[i]);
+  const psH     = fhPsH.map((v,i)  => v ?? compPsH[i]);
+  const pfH     = histEx.map(h=>h.pfcf&&h.pfcf>0&&h.pfcf<999?+h.pfcf.toFixed(1):null);
+  const pbH     = fhPbH.map((v,i)  => v ?? compPbH[i]);
+  const evEbitH = fhEvH.map((v,i)  => v ?? compEvEbitH[i]);
+  const evSlsH  = histEx.map(h=>h.ev_sales&&h.ev_sales>0&&h.ev_sales<999?+h.ev_sales.toFixed(1):null);
   const mcapH   = histEx.map(h=>h.hist_mcap ? +(h.hist_mcap/1e9).toFixed(1) : null);
   const evH     = histEx.map((h,i)=>{
     if(!h.hist_mcap)return null;
@@ -1359,6 +1393,20 @@ function _tabValuacion(container, tk, data, metrics, profile, candles) {
   // Serie anual de precio
   const annualPx = _buildAnnualPriceSeries(candles, d5.map(d=>d.year));
   const pxLast   = annualPx.filter(v=>v!=null).at(-1);
+
+  const DEBUG_FUNDAMENTALS = false;
+  if (DEBUG_FUNDAMENTALS) {
+    console.group('[AF DEBUG] _tabValuacion:', tk);
+    console.log('candles:', {dates: candles?.dates?.length, closes: candles?.closes?.length});
+    console.log('sharesEst:', sharesEst, '| shares:', shares, '| mcapM:', mcapM);
+    console.log('fhPeH:', fhPeH, '→ peH:', peH);
+    console.log('fhPsH:', fhPsH, '→ psH:', psH);
+    console.log('fhPbH:', fhPbH, '→ pbH:', pbH);
+    console.log('fhEvH:', fhEvH, '→ evEbitH:', evEbitH);
+    console.log('pfH:', pfH, '| mcapH:', mcapH, '| evH:', evH);
+    console.log('annualPx:', annualPx);
+    console.groupEnd();
+  }
 
   // Sub-headers
   const peSub   = `P/E ${_mF(pe)}`;
