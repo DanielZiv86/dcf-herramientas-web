@@ -1,18 +1,18 @@
 """
 build_fci_data.py — Genera backend/data/fci_data.json
 
-Lee los archivos de caché del proyecto Streamlit y construye el JSON estático
-que sirve el backend HTML. Sin dependencias de la API de CAFCI en runtime.
+Lee los archivos fuente de FCI y construye el JSON estático que sirve el backend HTML.
+Sin dependencias de la API de CAFCI en runtime.
 
-Fuentes:
+Fuentes (en backend/data/):
   cafci_fondos_con_agentes.json  — lista de 1128+ fondos con metadatos
   cafci_vcp_mensual.csv          — rendimientos mensuales (% por mes) de 3943 fondos
+
+Para actualizar las fuentes: python backend/build_cafci_sources.py (requiere IP local, no datacenter)
 
 Uso:
   python backend/build_fci_data.py
   python backend/build_fci_data.py --fondos PATH_JSON --vcp PATH_CSV
-
-El script detecta automáticamente las rutas del proyecto Streamlit si existen.
 """
 from __future__ import annotations
 
@@ -27,14 +27,10 @@ import pandas as pd
 
 # ── Rutas por defecto ────────────────────────────────────────────────────────
 
-# Proyecto Streamlit (ajustar si es necesario)
-_STREAMLIT_BASE = Path(
-    r"G:\.shortcut-targets-by-id\1ftoIZqhxjIK-zxyM2xIG9xFIX4GG9BvJ"
-    r"\DCF\Marketing\Instagram\Scripts Python\App DCF Dani"
-)
-_DEFAULT_FONDOS = _STREAMLIT_BASE / "cafci_fondos_con_agentes.json"
-_DEFAULT_VCP    = _STREAMLIT_BASE / "cafci_vcp_mensual.csv"
-_OUTPUT         = Path(__file__).parent / "data" / "fci_data.json"
+_DATA_DIR       = Path(__file__).parent / "data"
+_DEFAULT_FONDOS = _DATA_DIR / "cafci_fondos_con_agentes.json"
+_DEFAULT_VCP    = _DATA_DIR / "cafci_vcp_mensual.csv"
+_OUTPUT         = _DATA_DIR / "fci_data.json"
 
 # ── Mapeos ───────────────────────────────────────────────────────────────────
 

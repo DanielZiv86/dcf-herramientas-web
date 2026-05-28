@@ -97,8 +97,8 @@ dcf-herramientas-web/
 | Letras y Boncaps | ✅ Completo | Tabla + chart + calculadora con precio al vencimiento |
 | Bonos CER | 🔧 En corrección | Duplicados y TIR Real pendientes — leer memory/project_cer_tab_debug.md |
 | ONs | ⏳ Pendiente | Leer `ons_ytm_data.py` + `views/ons_ytm.py` antes de empezar |
-| FCI | ⏳ Pendiente | Leer `cafci_client.py` + `views/fci.py` antes de empezar |
-| Análisis Fundamental | ⏳ Pendiente | Leer `fundamental/` + `views/analisis_fundamental.py` antes de empezar |
+| FCI | ✅ Completo | Tabla + gráfico comparativo. Ver sección FCI más abajo. |
+| Análisis Fundamental | ✅ Completo | 5 subtabs benchmark-match. Ver memory/project_fundamental_rentabilidad.md |
 
 ## Decisiones de diseño clave (HTML)
 
@@ -121,6 +121,8 @@ dcf-herramientas-web/
 | BD REM.xlsx | Bandas carry-trade | **Mensual** (REM BCRA) |
 | BD BONOS CER.xlsx | Migración CER — TEMPLATE | Completar con prospectos CNV/BYMA |
 | metadata_cer.xlsx | Migración CER — TEMPLATE | Completar con datos de instrumentos |
+| cafci_fondos_con_agentes.json | FCI — metadata fondos | Mensual: `python backend/build_cafci_sources.py --solo-fondos` |
+| cafci_vcp_mensual.csv | FCI — retornos mensuales | Mensual: `python backend/build_cafci_sources.py --solo-vcp` |
 
 ## Fuentes de datos
 
@@ -132,6 +134,30 @@ dcf-herramientas-web/
 - **IOL**: fallback de precios (scraping HTML)
 - **CAFCI**: FCI fondos
 - **Finnhub**: Análisis Fundamental (plan pago)
+
+## FCI — Workflow de actualización
+
+### Archivos fuente (en backend/data/ — independientes del repo Streamlit)
+- `cafci_fondos_con_agentes.json` — metadata de ~1128 fondos activos (agentes, gerente, tipoRenta, clase)
+- `cafci_vcp_mensual.csv` — rendimientos mensuales (% por mes) para ~3943 fondos × 11+ meses
+
+### Actualización manual (requiere IP local — CAFCI bloquea datacenters con 403)
+```bash
+python backend/build_cafci_sources.py        # actualiza ambos archivos fuente
+python backend/build_fci_data.py             # regenera fci_data.json (44 fondos curados)
+```
+
+### GitHub Actions (automático)
+- `update-cafci-sources.yml` — 1° de cada mes 08:00 UTC: intenta actualizar fuentes via CAFCI
+- `update-fci-data.yml` — 1° de cada mes 09:00 UTC: regenera fci_data.json desde las fuentes
+- Si CAFCI bloquea (403): scripts hacen `sys.exit(1)` → NO sobreescriben archivos existentes
+
+### Servicio (backend/services/fci.py)
+- Carga `fci_data.json` en memoria al primer request
+- Refresh de rendimientos en background desde CAFCI `/ficha` cada 24h (sin bloquear requests)
+- Si CAFCI bloquea el refresh: reintenta en 5 minutos
+
+---
 
 ## Para producción (pendiente)
 

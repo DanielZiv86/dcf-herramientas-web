@@ -1,0 +1,75 @@
+name: Actualizar fuentes CAFCI
+
+# Corre el 1° de cada mes a las 08:00 UTC (1h antes que update-fci-data.yml).
+# Intenta actualizar cafci_fondos_con_agentes.json y cafci_vcp_mensual.csv via CAFCI API.
+# NOTA: CAFCI bloquea IPs de datacenter (403) — si falla, el script hace exit(1)
+# y NO sobreescribe los archivos existentes.
+# Si tiene éxito, update-fci-data.yml (a las 09:00 UTC) usará las fuentes actualizadas.
+
+on:
+  schedule:
+    - cron: '0 8 1 * *'    # 08:00 UTC día 1 de cada mes (antes que update-fci-data.yml)
+  workflow_dispatch:         # permite disparar manualmente desde GitHub UI
+
+permissions:
+  contents: write
+
+jobs:
+  update-cafci-sources:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          pip install requests pandas dnspython
+
+      - name: Actualizar fuentes CAFCI
+        id: build
+        run: |
+          python backend/build_cafci_sources.py --meses 13
+        # Si CAFCI bloquea el datacenter IP el script hace exit(1) y
+        # este step falla — los steps siguientes no corren, preservando
+        # los archivos existentes.
+        continue-on-error: false
+
+      - name: Verificar si cambió
+        id: check
+        if: steps.build.outcome == 'success'
+        run: |
+          git diff --quiet backend/data/cafci_fondos_con_agentes.json backend/data/cafci_vcp_mensual.csv \
+            && echo "changed=false" >> $GITHUB_OUTPUT \
+            || echo "changed=true" >> $GITHUB_OUTPUT
+
+      - name: Commitear archivos actualizados
+        if: steps.build.outcome == 'success' && steps.check.outputs.changed == 'true'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add backend/data/cafci_fondos_con_agentes.json backend/data/cafci_vcp_mensual.csv
+          git commit -m "auto: actualizar fuentes CAFCI [$(date -u '+%Y-%m-%d')]"
+          git pull --rebase origin main
+          git push
+
+      - name: Log si no hubo cambios
+        if: steps.build.outcome == 'success' && steps.check.outputs.changed == 'false'
+        run: echo "Fuentes CAFCI sin cambios."
+
+      - name: Log si CAFCI bloqueó el acceso
+        if: steps.build.outcome == 'failure'
+        run: |
+          echo "⚠️  CAFCI API bloqueó el acceso desde GitHub Actions (403)."
+          echo "    cafci_fondos_con_agentes.json y cafci_vcp_mensual.csv NO fueron modificados."
+          echo "    Actualizar manualmente con:"
+          echo "    python backend/build_cafci_sources.py  (desde máquina local)"
+          echo "    python backend/build_fci_data.py       (para regenerar fci_data.json)"
