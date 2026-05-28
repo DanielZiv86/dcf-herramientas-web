@@ -33,18 +33,24 @@ jobs:
           pip install requests pandas dnspython
 
       - name: Regenerar fci_data.json via CAFCI API
+        id: build
         run: |
           python backend/build_fci_data_ci.py
         env:
           PYTHONPATH: backend
+        # Si CAFCI bloquea el datacenter IP el script hace exit(1) y
+        # este step falla — los steps siguientes no corren, preservando
+        # el fci_data.json existente (que fue generado localmente).
+        continue-on-error: false
 
       - name: Verificar si cambió
         id: check
+        if: steps.build.outcome == 'success'
         run: |
           git diff --quiet backend/data/fci_data.json && echo "changed=false" >> $GITHUB_OUTPUT || echo "changed=true" >> $GITHUB_OUTPUT
 
       - name: Commitear JSON actualizado
-        if: steps.check.outputs.changed == 'true'
+        if: steps.build.outcome == 'success' && steps.check.outputs.changed == 'true'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -54,5 +60,12 @@ jobs:
           git push
 
       - name: Log si no hubo cambios
-        if: steps.check.outputs.changed == 'false'
+        if: steps.build.outcome == 'success' && steps.check.outputs.changed == 'false'
         run: echo "fci_data.json sin cambios."
+
+      - name: Log si CAFCI bloqueó el acceso
+        if: steps.build.outcome == 'failure'
+        run: |
+          echo "⚠️  CAFCI API bloqueó el acceso desde GitHub Actions (403)."
+          echo "    fci_data.json NO fue modificado. Regenerar manualmente con:"
+          echo "    python backend/build_fci_data.py  (desde máquina local)"

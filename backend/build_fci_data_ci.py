@@ -163,6 +163,11 @@ def main():
 
     print(f"[fci-ci] Total fondos: {len(all_fondos)}")
 
+    if not all_fondos:
+        print("[fci-ci] ERROR: la API de CAFCI no devolvió fondos (posible bloqueo 403 desde datacenter).")
+        print("[fci-ci] Abortando sin sobreescribir fci_data.json existente.")
+        import sys; sys.exit(1)
+
     rows: list[dict] = []
     seen: set[str] = set()
 
@@ -206,6 +211,11 @@ def main():
         })
 
     rows.sort(key=lambda r: (r["alyc"], r["tipo"], -(r.get("rend_year") or -9999)))
+
+    if not rows:
+        print("[fci-ci] ERROR: 0 fondos generados — probable bloqueo de IP en CAFCI (403).")
+        print("[fci-ci] Abortando sin sobreescribir fci_data.json existente.")
+        import sys; sys.exit(1)
 
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     with open(OUTPUT, "w", encoding="utf-8") as f:
