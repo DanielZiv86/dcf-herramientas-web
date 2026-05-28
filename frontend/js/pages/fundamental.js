@@ -298,15 +298,17 @@ const _AF_MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','
 
     try {
       if (!_cache.has(tk)) {
-        const [p, f, c] = await Promise.allSettled([
+        const [p, f, c, cd] = await Promise.allSettled([
           api.fundamental.perfil(tk),
           api.fundamental.financieros(tk),
           api.fundamental.candles(tk, 'W'),
+          api.fundamental.candles(tk, 'D'),
         ]);
         const cached = {
-          perfil:      p.status === 'fulfilled' ? p.value : {},
-          financieros: f.status === 'fulfilled' ? f.value : { data: [] },
-          candles:     c.status === 'fulfilled' ? c.value : { dates: [], closes: [] },
+          perfil:      p.status  === 'fulfilled' ? p.value  : {},
+          financieros: f.status  === 'fulfilled' ? f.value  : { data: [] },
+          candles:     c.status  === 'fulfilled' ? c.value  : { dates: [], closes: [] },
+          candlesD:    cd.status === 'fulfilled' ? cd.value : { dates: [], closes: [] },
         };
         // Validar datos mínimos: profile con nombre/mcap, o al menos un año financiero
         const prof    = cached.perfil?.profile || {};
@@ -318,8 +320,8 @@ const _AF_MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','
         _cache.set(tk, cached);
       }
 
-      const { perfil, financieros, candles } = _cache.get(tk);
-      _renderFull(document.getElementById('af-main'), tk, perfil, financieros, candles);
+      const { perfil, financieros, candles, candlesD } = _cache.get(tk);
+      _renderFull(document.getElementById('af-main'), tk, perfil, financieros, candles, candlesD);
     } catch (e) {
       const msg = e?.status === 429
         ? 'Fuente de datos temporalmente limitada. Intentá de nuevo en unos minutos.'
@@ -329,7 +331,7 @@ const _AF_MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','
   }
 
   /* ── Render completo (sin cambios respecto al diseño benchmark) ──────────── */
-  function _renderFull(main, tk, perfil, financieros, candles) {
+  function _renderFull(main, tk, perfil, financieros, candles, candlesD) {
     const { profile = {}, quote = {}, metrics = {}, description = '', tags = [] } = perfil;
     const data = (financieros.data || []).filter(r => r?.year);
     main.innerHTML = `
@@ -337,10 +339,10 @@ const _AF_MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','
       <div id="af-tabs-bar" style="margin-bottom:10px"></div>
       <div id="af-tab-body"></div>`;
     _renderHero(document.getElementById('af-hero'), tk, profile, quote, metrics, description, tags, data);
-    _renderTabsBar(document.getElementById('af-tabs-bar'), tk, profile, quote, metrics, description, tags, data, candles);
+    _renderTabsBar(document.getElementById('af-tabs-bar'), tk, profile, quote, metrics, description, tags, data, candles, candlesD);
   }
 
-  function _renderTabsBar(el, tk, profile, quote, metrics, desc, tags, data, candles) {
+  function _renderTabsBar(el, tk, profile, quote, metrics, desc, tags, data, candles, candlesD) {
     el.innerHTML = `<div style="display:flex;gap:2px;flex-wrap:wrap;padding:3px;
       background:rgba(11,18,32,.9);border:1px solid ${_BOR};
       border-radius:9px;width:fit-content"></div>`;
@@ -368,21 +370,21 @@ const _AF_MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','
           b.style.border     = `1px solid ${a ? 'rgba(36,54,77,1)' : 'transparent'}`;
           b.style.color      = a ? '#C8D8E8' : '#4A5F75';
         });
-        _dispatchTab(body, tab.id, tk, profile, quote, metrics, desc, tags, data, candles);
+        _dispatchTab(body, tab.id, tk, profile, quote, metrics, desc, tags, data, candles, candlesD);
       };
       bar.appendChild(btn);
     });
-    _dispatchTab(body, _tabId, tk, profile, quote, metrics, desc, tags, data, candles);
+    _dispatchTab(body, _tabId, tk, profile, quote, metrics, desc, tags, data, candles, candlesD);
   }
 
-  function _dispatchTab(body, tabId, tk, profile, quote, metrics, desc, tags, data, candles) {
+  function _dispatchTab(body, tabId, tk, profile, quote, metrics, desc, tags, data, candles, candlesD) {
     body.innerHTML = '';
     switch (tabId) {
       case 'empresa':      _tabEmpresa(body, tk, profile, quote, metrics, desc, tags, data); break;
       case 'negocio':      _tabNegocio(body, tk, data, metrics); break;
       case 'rentabilidad': _tabRentabilidad(body, tk, data, metrics); break;
       case 'financiera':   _tabFinanciera(body, tk, data); break;
-      case 'valuacion':    _tabValuacion(body, tk, data, metrics, profile, candles); break;
+      case 'valuacion':    _tabValuacion(body, tk, data, metrics, profile, candles, candlesD); break;
     }
   }
 };
@@ -525,13 +527,6 @@ function _tabEmpresa(container, tk, profile, quote, metrics, desc, tags, data) {
   // Ratios calculados desde estados financieros como fallback cuando metrics es vacío
   const _pe   = _pv(metrics.pe_ttm,
                     mcapM&&last?.net_income>0 ? mcapM/last.net_income : null);
-  // P/E Forward: directo de metrics; fallback computado desde precio / EPS forward
-  const _pef  = _pv(
-    metrics.pe_forward,
-    (quote.price && metrics.eps_forward && +metrics.eps_forward > 0)
-      ? +quote.price / +metrics.eps_forward
-      : null
-  );
   const _ps   = _pv(metrics.ps_ttm,
                     mcapM&&last?.revenue>0    ? mcapM/last.revenue    : null);
   const _pb   = _pv(metrics.pb_annual);
@@ -555,6 +550,16 @@ function _tabEmpresa(container, tk, profile, quote, metrics, desc, tags, data) {
   const _em   = _pv(metrics.ebitda_margin_ttm, last?.ebitda_margin);
   const _nm   = _pv(metrics.net_margin_ttm,    last?.net_margin);
   const _beta = _pv(metrics.beta);
+  // ROIC: Finnhub roicTTM primario; fallback Net Income / Invested Capital desde financials
+  const _investedCap = last
+    ? (last.equity ?? 0) + Math.max(0, last.total_debt ?? 0) - Math.max(0, last.cash ?? 0)
+    : null;
+  const _roic = _pv(
+    metrics.roic_ttm,
+    (last?.net_income != null && _investedCap && _investedCap > 0)
+      ? last.net_income / _investedCap * 100
+      : null
+  );
 
   const exchange = (profile.exchange||'—').replace('NASDAQ NMS - GLOBAL MARKET','NASDAQ');
   const facts = [
@@ -573,7 +578,7 @@ function _tabEmpresa(container, tk, profile, quote, metrics, desc, tags, data) {
 
   const ratios = [
     ['P/E TTM',      _pe,   'x'],
-    ['P/E Forward',  _pef,  'x'],
+    ['ROIC TTM',     _roic, '%'],
     ['P/S TTM',      _ps,   'x'],
     ['P/B',          _pb,   'x'],
     ['EV/EBITDA',    _eveb, 'x', true],
@@ -1261,7 +1266,7 @@ function _fhSeries(hist, years) {
   });
 }
 
-function _tabValuacion(container, tk, data, metrics, profile, candles) {
+function _tabValuacion(container, tk, data, metrics, profile, candles, candlesD) {
   const mcapM   = profile.market_cap;
   const shares  = profile.shares;
   const mcapUSD = mcapM ? mcapM*1e6 : null;
@@ -1457,21 +1462,23 @@ function _tabValuacion(container, tk, data, metrics, profile, candles) {
     console.groupEnd();
   }
 
-  // Sub-headers
+  // Sub-headers para charts de múltiplos
   const peSub   = `P/E ${_mF(pe)}`;
   const psSub   = `P/S ${_mF(ps)}`;
   const mcapSub = mcapUSD!=null ? `${_fmtB(mcapUSD)} Mkt Cap` : '';
-  const pxSub   = pxLast!=null  ? `$${pxLast.toFixed(2)}`    : '';
+
+  // Sub-header para precio: último close diario o anual como fallback
+  const lastPxD = candlesD?.closes?.length ? candlesD.closes[candlesD.closes.length-1] : null;
+  const pxSubC  = lastPxD!=null ? `$${lastPxD.toFixed(2)}` : (pxLast!=null ? `$${pxLast.toFixed(2)}` : '');
 
   // ── Chart P/E VS EV/EBITDA: solo si alguna serie tiene datos ───────────────
   const showPeChart = _has(peH) || _has(evEbitH);
 
-  // ── Grid de charts dinámico: omitir P/E si no hay datos ────────────────────
+  // ── Grid 2-col: múltiplos históricos (precio es panel full-width aparte) ────
   const chartItems = [
     ...(showPeChart ? [_cPanelN('af-c-pe',   'P/E VS EV/EBITDA',    peSub)] : []),
     _cPanelN('af-c-pspf', 'P/S Y P/FCF',          psSub),
     _cPanelN('af-c-mcap', 'MARKET CAP Y EV ($B)', mcapSub),
-    _cPanelN('af-c-px',   'PRECIO HISTÓRICO',      pxSub),
   ];
 
   // Si hay número impar de charts, el último ocupa las dos columnas
@@ -1480,6 +1487,16 @@ function _tabValuacion(container, tk, data, metrics, profile, candles) {
       return `<div style="grid-column:1/-1">${html}</div>`;
     return html;
   }).join('');
+
+  // Panel full-width para el candlestick (más alto que panels de múltiplos)
+  const pricePanel = `<div style="background:#12182B;border:1px solid #2A3350;border-radius:12px;overflow:hidden;margin-top:10px">
+    <div style="padding:.9rem 1rem .5rem">
+      <div style="font-size:9px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+        color:#94A3B8;font-family:${_MONO};margin-bottom:${pxSubC?'4px':'0'}">PRECIO HISTÓRICO — 1 AÑO DIARIO</div>
+      ${pxSubC?`<div style="font-size:14px;font-weight:800;color:#F8FAFC;font-family:${_MONO};line-height:1.1">${pxSubC}</div>`:''}
+    </div>
+    <div id="af-c-px" style="height:280px"></div>
+  </div>`;
 
   container.innerHTML=`
     <div style="display:grid;grid-template-columns:repeat(${kpiAll.length},minmax(0,1fr));gap:8px;margin-bottom:1rem">
@@ -1496,6 +1513,7 @@ function _tabValuacion(container, tk, data, metrics, profile, candles) {
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       ${chartHTML}
     </div>
+    ${pricePanel}
     ${ebitdaIsNeg&&!_ok(evEbit)?`<div style="font-family:${_MONO};font-size:.58rem;color:#4A5F75;margin-top:6px">¹ EV/EBITDA no aplica cuando EBITDA estimado es negativo.</div>`:''}`;
 
   if(showPeChart) _ch('af-c-pe', ch=>{
@@ -1541,21 +1559,109 @@ function _tabValuacion(container, tk, data, metrics, profile, candles) {
     });
   }, false);
 
-  _ch('af-c-px', ch=>{
+  // ── Candlestick diario 1 año ─────────────────────────────────────────────
+  const datesD  = candlesD?.dates  || [];
+  const closesD = candlesD?.closes || [];
+  const opensD  = candlesD?.opens  || closesD;
+  const highsD  = candlesD?.highs  || closesD;
+  const lowsD   = candlesD?.lows   || closesD;
+  const hasOHLC = datesD.length > 0 && (candlesD?.opens?.length ?? 0) > 0;
+
+  _ch('af-c-px', ch => {
+    const ma20 = _movAvg(closesD, 20);
+    const ma50 = _movAvg(closesD, 50);
+    const lblInterval = Math.max(0, Math.floor(datesD.length / 6) - 1);
     ch.setOption({
-      ..._nBaseN(yrs5),
-      yAxis:[{type:'value',
-        axisLabel:{color:'#94A3B8',fontFamily:_MONO,fontSize:9,
-          formatter:v=>`$${v>=1000?(v/1000).toFixed(0)+'K':v.toFixed(0)}`},
-        splitLine:{lineStyle:{color:'rgba(30,41,59,.7)',type:'solid'}},
-        axisLine:{show:false},axisTick:{show:false}}],
-      series:[{name:tk,type:'line',data:annualPx,
-        smooth:true,symbol:'circle',symbolSize:4,
-        lineStyle:{color:'#7C3AED',width:1.8},itemStyle:{color:'#7C3AED'},
-        areaStyle:{color:'rgba(124,58,237,.12)'}}],
-      tooltip:{..._nTtN(),valueFormatter:v=>v!=null?`$${v.toFixed(2)}`:'—'},
+      backgroundColor: 'transparent',
+      grid: { left: 10, right: 60, top: 12, bottom: 28, containLabel: true },
+      xAxis: [{
+        type: 'category', data: datesD, boundaryGap: true,
+        axisLine: { lineStyle: { color: 'rgba(42,51,80,.9)' } },
+        axisTick: { show: false },
+        splitLine: { show: false },
+        axisLabel: {
+          color: '#94A3B8', fontFamily: _MONO, fontSize: 8.5,
+          interval: lblInterval,
+          formatter: d => {
+            const dt = new Date(d + 'T00:00:00');
+            return `${_AF_MESES[dt.getMonth()]} '${String(dt.getFullYear()).slice(2)}`;
+          }
+        }
+      }],
+      yAxis: [{
+        type: 'value', scale: true, position: 'right',
+        axisLabel: {
+          color: '#94A3B8', fontFamily: _MONO, fontSize: 8.5,
+          formatter: v => `$${v >= 1000 ? (v/1000).toFixed(1)+'K' : v.toFixed(0)}`
+        },
+        splitLine: { lineStyle: { color: 'rgba(30,41,59,.7)', type: 'solid' } },
+        axisLine: { show: false }, axisTick: { show: false },
+      }],
+      series: [
+        ...(hasOHLC ? [{
+          name: tk, type: 'candlestick',
+          data: datesD.map((_,i) => [opensD[i], closesD[i], lowsD[i], highsD[i]]),
+          itemStyle: {
+            color: '#34D399', color0: '#F87171',
+            borderColor: '#34D399', borderColor0: '#F87171',
+          }
+        }] : [{
+          name: tk, type: 'line', data: closesD,
+          smooth: false, symbol: 'none',
+          lineStyle: { color: '#7C3AED', width: 1.5 },
+          areaStyle: { color: 'rgba(124,58,237,.10)' }
+        }]),
+        { name: 'MA20', type: 'line', data: ma20, smooth: false, symbol: 'none',
+          lineStyle: { color: '#F59E0B', width: 1.2 }, itemStyle: { color: '#F59E0B' } },
+        { name: 'MA50', type: 'line', data: ma50, smooth: false, symbol: 'none',
+          lineStyle: { color: '#8B5CF6', width: 1.2, type: 'dashed' }, itemStyle: { color: '#8B5CF6' } },
+      ],
+      legend: {
+        data: ['MA20','MA50'], orient: 'horizontal', bottom: 2, right: 4,
+        textStyle: { color: '#94A3B8', fontSize: 8.5, fontFamily: _MONO },
+        icon: 'rect', itemWidth: 12, itemHeight: 4,
+      },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: '#0B0F1A',
+        borderColor: 'rgba(42,51,80,.9)', borderWidth: 1, padding: [8, 12],
+        textStyle: { fontFamily: _MONO, fontSize: 10, color: '#F8FAFC' },
+        axisPointer: { type: 'cross', lineStyle: { color: 'rgba(42,51,80,.4)' }, crossStyle: { color: 'rgba(42,51,80,.4)' } },
+        formatter: params => {
+          const bar = params.find(p => p.seriesType === 'candlestick') ||
+                      params.find(p => p.seriesName === tk);
+          if (!bar) return '';
+          const rawDate = bar.axisValue || bar.name || '';
+          const dt = new Date(rawDate + 'T00:00:00');
+          const dateStr = `${dt.getDate()} ${_AF_MESES[dt.getMonth()]} ${dt.getFullYear()}`;
+          let html = `<div style="color:#94A3B8;margin-bottom:5px;font-size:9px;font-family:${_MONO}">${dateStr}</div>`;
+          if (hasOHLC && bar.seriesType === 'candlestick') {
+            const [o, c, l, h] = bar.value;
+            const col = c >= o ? '#34D399' : '#F87171';
+            html += `<div style="display:grid;grid-template-columns:16px auto;gap:1px 8px;font-family:${_MONO}">`;
+            html += `<span style="color:#4A5F75">O</span><span style="color:${col}">$${(+o).toFixed(2)}</span>`;
+            html += `<span style="color:#4A5F75">H</span><span>$${(+h).toFixed(2)}</span>`;
+            html += `<span style="color:#4A5F75">L</span><span>$${(+l).toFixed(2)}</span>`;
+            html += `<span style="color:#4A5F75">C</span><span style="color:${col}">$${(+c).toFixed(2)}</span>`;
+            html += `</div>`;
+          } else if (bar.value != null) {
+            html += `<div style="font-family:${_MONO}">$${(+bar.value).toFixed(2)}</div>`;
+          }
+          params.filter(p => p.seriesName === 'MA20' || p.seriesName === 'MA50').forEach(p => {
+            if (p.value != null) {
+              html += `<div style="margin-top:3px;font-family:${_MONO};font-size:9px">
+                <span style="display:inline-block;width:10px;height:3px;background:${p.color};margin-right:5px;vertical-align:middle"></span>
+                <span style="color:#4A5F75">${p.seriesName}</span>
+                <span style="margin-left:6px">$${(+p.value).toFixed(2)}</span>
+              </div>`;
+            }
+          });
+          return html;
+        }
+      },
+      dataZoom: [{ type: 'inside', xAxisIndex: 0, start: 0, end: 100 }],
     });
-  }, !annualPx.some(v=>v!=null));
+  }, !datesD.length);
 }
 
 
@@ -1669,6 +1775,14 @@ function _computeHistMult(data, candles, sharesMM) {
       ps:  d.revenue&&d.revenue>0?hm/(d.revenue*1e6):null,
       pfcf:d.fcf&&d.fcf>0?hm/(d.fcf*1e6):null,
       pe:  d.net_income&&d.net_income>0?hm/(d.net_income*1e6):null};
+  });
+}
+
+function _movAvg(data, n) {
+  return data.map((_, i) => {
+    if (i < n - 1) return null;
+    const slice = data.slice(i - n + 1, i + 1);
+    return +(slice.reduce((a, b) => a + b, 0) / n).toFixed(2);
   });
 }
 

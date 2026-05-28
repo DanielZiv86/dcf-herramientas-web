@@ -517,17 +517,24 @@ async def _fetch_financials_live(ticker: str) -> list[dict]:
 
 # ── yfinance: price history (velas semanales) ─────────────────────────────────
 
-def _candles_yfinance_sync(ticker: str, years: int = 5) -> dict:
-    """Histórico de precios semanal via yfinance. Primary source para velas."""
+def _candles_yfinance_sync(ticker: str, years: int = 5, resolution: str = "W") -> dict:
+    """Histórico de precios via yfinance. resolution='W'→semanal 5y, 'D'→diario 1y con OHLC."""
     try:
         import yfinance as yf
+        if resolution == "D":
+            period   = "1y"
+            interval = "1d"
+        else:
+            period   = f"{years}y"
+            interval = "1wk"
+
         # multi_level_index=False evita MultiIndex en yfinance ≥0.2.40;
         # versiones anteriores lo ignoran con TypeError — manejamos ambos casos.
         try:
-            df = yf.download(ticker, period=f"{years}y", interval="1wk",
+            df = yf.download(ticker, period=period, interval=interval,
                              auto_adjust=True, progress=False, multi_level_index=False)
         except TypeError:
-            df = yf.download(ticker, period=f"{years}y", interval="1wk",
+            df = yf.download(ticker, period=period, interval=interval,
                              auto_adjust=True, progress=False)
 
         if df is None or df.empty:
@@ -558,12 +565,31 @@ def _candles_yfinance_sync(ticker: str, years: int = 5) -> dict:
             logger.warning("[fund] yfinance candles %s: cols not found in %s", ticker, list(df.columns))
             return {"status": "no_data", "dates": [], "closes": []}
 
-        df = df[[date_col, close_col]].dropna()
+        # Columnas OHLC opcionales (presentes en daily y weekly)
+        open_col  = next((c for c in df.columns if c == "open"),  None)
+        high_col  = next((c for c in df.columns if c == "high"),  None)
+        low_col   = next((c for c in df.columns if c == "low"),   None)
+
+        cols = [date_col, close_col]
+        if open_col: cols.append(open_col)
+        if high_col: cols.append(high_col)
+        if low_col:  cols.append(low_col)
+
+        df = df[cols].dropna(subset=[date_col, close_col])
         dates  = [str(d)[:10] for d in df[date_col]]
         closes = [round(float(v), 4) for v in df[close_col]]
 
-        logger.info("[fund] yfinance candles %s: %d weeks", ticker, len(dates))
-        return {"status": "ok", "dates": dates, "closes": closes}
+        result: dict = {"status": "ok", "dates": dates, "closes": closes}
+        if open_col and high_col and low_col:
+            result["opens"]  = [round(float(v), 4) if pd.notna(v) else closes[i]
+                                 for i, v in enumerate(df[open_col])]
+            result["highs"]  = [round(float(v), 4) if pd.notna(v) else closes[i]
+                                 for i, v in enumerate(df[high_col])]
+            result["lows"]   = [round(float(v), 4) if pd.notna(v) else closes[i]
+                                 for i, v in enumerate(df[low_col])]
+
+        logger.info("[fund] yfinance candles %s (%s): %d bars", ticker, resolution, len(dates))
+        return result
 
     except Exception as e:
         logger.warning("[fund] yfinance candles %s failed: %s", ticker, e)
@@ -713,7 +739,7 @@ async def _metrics_finnhub_async(ticker: str) -> dict:
             "eps_forward":          None,
             "roe_ttm":              gm("roeTTM"),           # ya en %
             "roa_ttm":              gm("roaTTM"),           # ya en %
-            "roic_ttm":             None,
+            "roic_ttm":             gm("roicTTM"),
             "gross_margin_ttm":     gm("grossMarginTTM", "grossMarginAnnual"),  # ya en %
             "ebitda_margin_ttm":    None,           # no en basic /stock/metric
             "net_margin_ttm":       gm("netMarginTTM"),     # ya en %
@@ -1084,32 +1110,36 @@ async def get_financials(ticker: str) -> dict:
 async def get_candles(ticker: str, resolution: str = "W", from_ts: int = None, to_ts: int = None) -> dict:
     tkr = ticker.upper()
 
-    # 1. JSON estático
-    static = _static_load(tkr)
-    if static and static.get("candles", {}).get("status") == "ok":
-        logger.info("[fund] static cache hit: %s candles", tkr)
-        return static["candles"]
+    # 1. JSON estático — solo para weekly (daily siempre fresco)
+    if resolution != "D":
+        static = _static_load(tkr)
+        if static and static.get("candles", {}).get("status") == "ok":
+            logger.info("[fund] static cache hit: %s candles", tkr)
+            return static["candles"]
 
-    # 2. yfinance (primario para histórico — no requiere API key)
+    # 2. yfinance (primario — incluye OHLC para candlestick)
     try:
         candles = await asyncio.get_event_loop().run_in_executor(
-            _yf_pool, _candles_yfinance_sync, tkr
+            _yf_pool, _candles_yfinance_sync, tkr, 5, resolution
         )
         if candles.get("status") == "ok" and candles.get("dates"):
             return candles
     except Exception as e:
         logger.warning("[fund] yfinance candles %s: %s", tkr, e)
 
-    # 3. Finnhub fallback — intenta W primero, luego D (más disponible en planes básicos)
+    # 3. Finnhub fallback — para W: intenta W luego D; para D: solo D
     if settings.finnhub_token:
         now     = int(time.time())
-        from_ts = from_ts or (now - 5 * 365 * 86400)
+        if resolution == "D":
+            fh_from = from_ts or (now - 365 * 86400)   # 1 año para daily
+        else:
+            fh_from = from_ts or (now - 5 * 365 * 86400)
         to_ts_v = to_ts or now
-        resolutions = [resolution] if resolution == "D" else [resolution, "D"]
-        for fh_res in resolutions:
+        fh_resolutions = ["D"] if resolution == "D" else [resolution, "D"]
+        for fh_res in fh_resolutions:
             try:
                 params = dict(symbol=tkr, resolution=fh_res, to=to_ts_v)
-                params["from"] = from_ts
+                params["from"] = fh_from
                 async with _finnhub_client() as c:
                     r = await c.get("/stock/candle", params=params)
                     r.raise_for_status()
@@ -1117,11 +1147,16 @@ async def get_candles(ticker: str, resolution: str = "W", from_ts: int = None, t
                 logger.info("[fund] Finnhub candles %s res=%s: s=%s len=%d",
                             tkr, fh_res, data.get("s"), len(data.get("t", [])))
                 if data.get("s") == "ok" and data.get("t"):
-                    return {
-                        "status":  "ok",
-                        "dates":   [pd.Timestamp(ts, unit="s").strftime("%Y-%m-%d") for ts in data["t"]],
-                        "closes":  data.get("c", []),
+                    result: dict = {
+                        "status": "ok",
+                        "dates":  [pd.Timestamp(ts, unit="s").strftime("%Y-%m-%d") for ts in data["t"]],
+                        "closes": data.get("c", []),
                     }
+                    if data.get("o") and data.get("h") and data.get("l"):
+                        result["opens"]  = data["o"]
+                        result["highs"]  = data["h"]
+                        result["lows"]   = data["l"]
+                    return result
             except Exception as e:
                 logger.warning("[fund] Finnhub candles %s res=%s: %s", tkr, fh_res, e)
 
