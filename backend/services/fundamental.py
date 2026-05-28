@@ -515,7 +515,7 @@ async def _fetch_financials_live(ticker: str) -> list[dict]:
     return []
 
 
-# ── yfinance: price history (velas semanales) ─────────────────────────────────
+# ── yfinance: price history (fallback — bloqueado por Yahoo en datacenters) ───
 
 def _candles_yfinance_sync(ticker: str, years: int = 5, resolution: str = "W") -> dict:
     """Histórico de precios via yfinance. resolution='W'→semanal 5y, 'D'→diario 1y con OHLC."""
@@ -1104,7 +1104,7 @@ async def get_financials(ticker: str) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Candles (yfinance primario — confiable, 5 años)
+# Candles (Stooq primario → Finnhub fallback → yfinance último recurso)
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def _try_finnhub_candles(tkr: str, resolution: str, fh_from: int, to_ts: int) -> Optional[dict]:
@@ -1135,8 +1135,11 @@ async def _try_finnhub_candles(tkr: str, resolution: str, fh_from: int, to_ts: i
 
 
 async def get_candles(ticker: str, resolution: str = "W", from_ts: int = None, to_ts: int = None) -> dict:
-    tkr = ticker.upper()
-    now = int(time.time())
+    from services import yahoo as yah
+
+    tkr  = ticker.upper()
+    now  = int(time.time())
+    days = 365 if resolution == "D" else 5 * 365
 
     # 1. JSON estático — solo para weekly (daily siempre fresco)
     if resolution != "D":
@@ -1145,38 +1148,37 @@ async def get_candles(ticker: str, resolution: str = "W", from_ts: int = None, t
             logger.info("[fund] static cache hit: %s candles", tkr)
             return static["candles"]
 
-    # Para daily: Finnhub PRIMERO (yfinance es bloqueado por Yahoo en datacenters como Render)
-    if resolution == "D" and settings.finnhub_token:
-        fh_from = from_ts or (now - 365 * 86400)
+    # 2. Yahoo Finance chart API — primario (browser headers, funciona en Render)
+    try:
+        yf_chart = await yah.get_ohlcv_history(tkr, resolution, days)
+        if yf_chart.get("status") == "ok" and yf_chart.get("dates"):
+            return yf_chart
+    except Exception as e:
+        logger.warning("[fund] Yahoo chart candles %s: %s", tkr, e)
+
+    # 3. Finnhub /stock/candle (fallback)
+    if settings.finnhub_token:
+        fh_from = from_ts or (now - days * 86400)
         to_ts_v = to_ts or now
-        result = await _try_finnhub_candles(tkr, "D", fh_from, to_ts_v)
+        result = await _try_finnhub_candles(tkr, resolution, fh_from, to_ts_v)
         if result:
             return result
 
-    # 2. yfinance (primario para weekly; fallback para daily)
+    # 4. yfinance síncrono (último recurso — suele fallar en Render por bloqueo de Yahoo)
     try:
         candles = await asyncio.wait_for(
             asyncio.get_event_loop().run_in_executor(
-                _yf_pool, _candles_yfinance_sync, tkr, 5, resolution
+                _yf_pool, _candles_yfinance_sync, tkr,
+                1 if resolution == "D" else 5, resolution
             ),
             timeout=15.0,
         )
         if candles.get("status") == "ok" and candles.get("dates"):
-            logger.info("[fund] yfinance candles %s (%s): %d bars", tkr, resolution, len(candles["dates"]))
             return candles
     except asyncio.TimeoutError:
-        logger.warning("[fund] yfinance candles %s: timeout (Yahoo Finance probablemente bloqueado)", tkr)
+        logger.warning("[fund] yfinance candles %s: timeout (Yahoo bloqueado)", tkr)
     except Exception as e:
         logger.warning("[fund] yfinance candles %s: %s", tkr, e)
-
-    # 3. Finnhub fallback para weekly (si el paso anterior falló)
-    if resolution != "D" and settings.finnhub_token:
-        fh_from = from_ts or (now - 5 * 365 * 86400)
-        to_ts_v = to_ts or now
-        for fh_res in [resolution, "D"]:
-            result = await _try_finnhub_candles(tkr, fh_res, fh_from, to_ts_v)
-            if result:
-                return result
 
     return {"status": "no_data", "dates": [], "closes": []}
 

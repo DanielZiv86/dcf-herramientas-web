@@ -244,6 +244,62 @@ async def get_quotes(tickers: list[str]) -> dict[str, dict]:
                 for t in tickers}
 
 
+# ── OHLCV History (para gráficos de velas) ───────────────────────────────
+
+async def get_ohlcv_history(ticker: str, resolution: str = "D", days: int = 365) -> dict:
+    """Histórico OHLCV via Yahoo Finance chart API.
+    Usa browser headers — funciona en datacenters (Render), no requiere crumb.
+    resolution='D'→diario, 'W'→semanal, 'M'→mensual.
+    """
+    _range_map    = {365: "1y", 730: "2y", 1825: "5y"}
+    _interval_map = {"D": "1d", "W": "1wk", "M": "1mo"}
+    range_   = _range_map.get(days, "1y")
+    interval = _interval_map.get(resolution, "1d")
+    url = _YF_CHART.format(ticker=ticker.upper())
+    try:
+        async with httpx.AsyncClient(headers=_HEADERS, timeout=15, follow_redirects=True) as c:
+            r = await c.get(url, params={
+                "range": range_, "interval": interval, "includePrePost": "false",
+            })
+            r.raise_for_status()
+            data = r.json().get("chart", {}).get("result", [])
+        if not data:
+            return {"status": "no_data", "dates": [], "closes": []}
+        res_data   = data[0]
+        timestamps = res_data.get("timestamp", [])
+        quotes     = res_data.get("indicators", {}).get("quote", [{}])[0]
+        closes_raw = quotes.get("close", [])
+        opens_raw  = quotes.get("open",  []) or []
+        highs_raw  = quotes.get("high",  []) or []
+        lows_raw   = quotes.get("low",   []) or []
+        if not timestamps or not closes_raw:
+            return {"status": "no_data", "dates": [], "closes": []}
+        # Zip y filtrar filas donde close no es None
+        n = len(timestamps)
+        opens_raw  = opens_raw  if len(opens_raw)  == n else [None] * n
+        highs_raw  = highs_raw  if len(highs_raw)  == n else [None] * n
+        lows_raw   = lows_raw   if len(lows_raw)   == n else [None] * n
+        rows = [
+            (pd.Timestamp(ts, unit="s").strftime("%Y-%m-%d"), c, o, h, l)
+            for ts, c, o, h, l in zip(timestamps, closes_raw, opens_raw, highs_raw, lows_raw)
+            if c is not None
+        ]
+        if not rows:
+            return {"status": "no_data", "dates": [], "closes": []}
+        dates_  = [row[0] for row in rows]
+        closes_ = [round(float(row[1]), 4) for row in rows]
+        result: dict = {"status": "ok", "dates": dates_, "closes": closes_}
+        if opens_raw and highs_raw and lows_raw:
+            result["opens"] = [round(float(row[2]), 4) if row[2] is not None else closes_[i] for i, row in enumerate(rows)]
+            result["highs"] = [round(float(row[3]), 4) if row[3] is not None else closes_[i] for i, row in enumerate(rows)]
+            result["lows"]  = [round(float(row[4]), 4) if row[4] is not None else closes_[i] for i, row in enumerate(rows)]
+        logger.info("[yf] OHLCV %s (%s/%s): %d bars", ticker, resolution, range_, len(dates_))
+        return result
+    except Exception as e:
+        logger.warning("[yf] OHLCV chart %s: %s", ticker, e)
+        return {"status": "no_data", "dates": [], "closes": []}
+
+
 # ── History ───────────────────────────────────────────────────────────────
 
 async def get_history(tickers: list[str], period: str = "1mo") -> pd.DataFrame:
