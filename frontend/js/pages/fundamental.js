@@ -1467,8 +1467,18 @@ function _tabValuacion(container, tk, data, metrics, profile, candles, candlesD)
   const psSub   = `P/S ${_mF(ps)}`;
   const mcapSub = mcapUSD!=null ? `${_fmtB(mcapUSD)} Mkt Cap` : '';
 
-  // Sub-header para precio: último close diario o anual como fallback
-  const lastPxD = candlesD?.closes?.length ? candlesD.closes[candlesD.closes.length-1] : null;
+  // Selección de fuente de precio: daily si disponible, weekly como fallback
+  const _useWeeklyFallback = !(candlesD?.dates?.length > 0) && candles?.dates?.length > 0;
+  const _src    = _useWeeklyFallback ? candles : (candlesD || {});
+  const datesD  = _src?.dates  || [];
+  const closesD = _src?.closes || [];
+  const opensD  = _src?.opens  || closesD;
+  const highsD  = _src?.highs  || closesD;
+  const lowsD   = _src?.lows   || closesD;
+  const hasOHLC = datesD.length > 0 && (_src?.opens?.length ?? 0) > 0;
+
+  // Sub-header para precio: último close de la fuente seleccionada o anual como fallback
+  const lastPxD = closesD.length ? closesD[closesD.length-1] : null;
   const pxSubC  = lastPxD!=null ? `$${lastPxD.toFixed(2)}` : (pxLast!=null ? `$${pxLast.toFixed(2)}` : '');
 
   // ── Chart P/E VS EV/EBITDA: solo si alguna serie tiene datos ───────────────
@@ -1560,17 +1570,7 @@ function _tabValuacion(container, tk, data, metrics, profile, candles, candlesD)
     });
   }, false);
 
-  // ── Candlestick diario (o fallback semanal si daily no disponible) ────────
-  // Usar daily si tiene datos, si no usar weekly como línea de cierre
-  const _useWeeklyFallback = !(candlesD?.dates?.length > 0) && candles?.dates?.length > 0;
-  const _src     = _useWeeklyFallback ? candles : candlesD;
-  const datesD   = _src?.dates  || [];
-  const closesD  = _src?.closes || [];
-  const opensD   = _src?.opens  || closesD;
-  const highsD   = _src?.highs  || closesD;
-  const lowsD    = _src?.lows   || closesD;
-  const hasOHLC  = datesD.length > 0 && (_src?.opens?.length ?? 0) > 0;
-
+  // ── Candlestick diario (o fallback semanal) — variables ya definidas arriba ──
   _ch('af-c-px', ch => {
     const ma20 = _movAvg(closesD, 20);
     const ma50 = _movAvg(closesD, 50);
