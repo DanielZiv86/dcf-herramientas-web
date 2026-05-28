@@ -1107,8 +1107,36 @@ async def get_financials(ticker: str) -> dict:
 # Candles (yfinance primario — confiable, 5 años)
 # ══════════════════════════════════════════════════════════════════════════════
 
+async def _try_finnhub_candles(tkr: str, resolution: str, fh_from: int, to_ts: int) -> Optional[dict]:
+    """Intenta obtener candles desde Finnhub. Retorna dict o None si falla."""
+    try:
+        params = dict(symbol=tkr, resolution=resolution, to=to_ts)
+        params["from"] = fh_from
+        async with _finnhub_client() as c:
+            r = await c.get("/stock/candle", params=params)
+            r.raise_for_status()
+            data = r.json()
+        logger.info("[fund] Finnhub candles %s res=%s: s=%s len=%d",
+                    tkr, resolution, data.get("s"), len(data.get("t", [])))
+        if data.get("s") == "ok" and data.get("t"):
+            result: dict = {
+                "status": "ok",
+                "dates":  [pd.Timestamp(ts, unit="s").strftime("%Y-%m-%d") for ts in data["t"]],
+                "closes": data.get("c", []),
+            }
+            if data.get("o") and data.get("h") and data.get("l"):
+                result["opens"]  = [round(float(v), 4) for v in data["o"]]
+                result["highs"]  = [round(float(v), 4) for v in data["h"]]
+                result["lows"]   = [round(float(v), 4) for v in data["l"]]
+            return result
+    except Exception as e:
+        logger.warning("[fund] Finnhub candles %s res=%s: %s", tkr, resolution, e)
+    return None
+
+
 async def get_candles(ticker: str, resolution: str = "W", from_ts: int = None, to_ts: int = None) -> dict:
     tkr = ticker.upper()
+    now = int(time.time())
 
     # 1. JSON estático — solo para weekly (daily siempre fresco)
     if resolution != "D":
@@ -1117,48 +1145,38 @@ async def get_candles(ticker: str, resolution: str = "W", from_ts: int = None, t
             logger.info("[fund] static cache hit: %s candles", tkr)
             return static["candles"]
 
-    # 2. yfinance (primario — incluye OHLC para candlestick)
+    # Para daily: Finnhub PRIMERO (yfinance es bloqueado por Yahoo en datacenters como Render)
+    if resolution == "D" and settings.finnhub_token:
+        fh_from = from_ts or (now - 365 * 86400)
+        to_ts_v = to_ts or now
+        result = await _try_finnhub_candles(tkr, "D", fh_from, to_ts_v)
+        if result:
+            return result
+
+    # 2. yfinance (primario para weekly; fallback para daily)
     try:
-        candles = await asyncio.get_event_loop().run_in_executor(
-            _yf_pool, _candles_yfinance_sync, tkr, 5, resolution
+        candles = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(
+                _yf_pool, _candles_yfinance_sync, tkr, 5, resolution
+            ),
+            timeout=15.0,
         )
         if candles.get("status") == "ok" and candles.get("dates"):
+            logger.info("[fund] yfinance candles %s (%s): %d bars", tkr, resolution, len(candles["dates"]))
             return candles
+    except asyncio.TimeoutError:
+        logger.warning("[fund] yfinance candles %s: timeout (Yahoo Finance probablemente bloqueado)", tkr)
     except Exception as e:
         logger.warning("[fund] yfinance candles %s: %s", tkr, e)
 
-    # 3. Finnhub fallback — para W: intenta W luego D; para D: solo D
-    if settings.finnhub_token:
-        now     = int(time.time())
-        if resolution == "D":
-            fh_from = from_ts or (now - 365 * 86400)   # 1 año para daily
-        else:
-            fh_from = from_ts or (now - 5 * 365 * 86400)
+    # 3. Finnhub fallback para weekly (si el paso anterior falló)
+    if resolution != "D" and settings.finnhub_token:
+        fh_from = from_ts or (now - 5 * 365 * 86400)
         to_ts_v = to_ts or now
-        fh_resolutions = ["D"] if resolution == "D" else [resolution, "D"]
-        for fh_res in fh_resolutions:
-            try:
-                params = dict(symbol=tkr, resolution=fh_res, to=to_ts_v)
-                params["from"] = fh_from
-                async with _finnhub_client() as c:
-                    r = await c.get("/stock/candle", params=params)
-                    r.raise_for_status()
-                    data = r.json()
-                logger.info("[fund] Finnhub candles %s res=%s: s=%s len=%d",
-                            tkr, fh_res, data.get("s"), len(data.get("t", [])))
-                if data.get("s") == "ok" and data.get("t"):
-                    result: dict = {
-                        "status": "ok",
-                        "dates":  [pd.Timestamp(ts, unit="s").strftime("%Y-%m-%d") for ts in data["t"]],
-                        "closes": data.get("c", []),
-                    }
-                    if data.get("o") and data.get("h") and data.get("l"):
-                        result["opens"]  = data["o"]
-                        result["highs"]  = data["h"]
-                        result["lows"]   = data["l"]
-                    return result
-            except Exception as e:
-                logger.warning("[fund] Finnhub candles %s res=%s: %s", tkr, fh_res, e)
+        for fh_res in [resolution, "D"]:
+            result = await _try_finnhub_candles(tkr, fh_res, fh_from, to_ts_v)
+            if result:
+                return result
 
     return {"status": "no_data", "dates": [], "closes": []}
 

@@ -1489,10 +1489,11 @@ function _tabValuacion(container, tk, data, metrics, profile, candles, candlesD)
   }).join('');
 
   // Panel full-width para el candlestick (más alto que panels de múltiplos)
+  const _pxTitle = _useWeeklyFallback ? 'PRECIO HISTÓRICO — SEMANAL 5 AÑOS' : 'PRECIO HISTÓRICO — 1 AÑO DIARIO';
   const pricePanel = `<div style="background:#12182B;border:1px solid #2A3350;border-radius:12px;overflow:hidden;margin-top:10px">
     <div style="padding:.9rem 1rem .5rem">
       <div style="font-size:9px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
-        color:#94A3B8;font-family:${_MONO};margin-bottom:${pxSubC?'4px':'0'}">PRECIO HISTÓRICO — 1 AÑO DIARIO</div>
+        color:#94A3B8;font-family:${_MONO};margin-bottom:${pxSubC?'4px':'0'}">${_pxTitle}</div>
       ${pxSubC?`<div style="font-size:14px;font-weight:800;color:#F8FAFC;font-family:${_MONO};line-height:1.1">${pxSubC}</div>`:''}
     </div>
     <div id="af-c-px" style="height:280px"></div>
@@ -1559,13 +1560,16 @@ function _tabValuacion(container, tk, data, metrics, profile, candles, candlesD)
     });
   }, false);
 
-  // ── Candlestick diario 1 año ─────────────────────────────────────────────
-  const datesD  = candlesD?.dates  || [];
-  const closesD = candlesD?.closes || [];
-  const opensD  = candlesD?.opens  || closesD;
-  const highsD  = candlesD?.highs  || closesD;
-  const lowsD   = candlesD?.lows   || closesD;
-  const hasOHLC = datesD.length > 0 && (candlesD?.opens?.length ?? 0) > 0;
+  // ── Candlestick diario (o fallback semanal si daily no disponible) ────────
+  // Usar daily si tiene datos, si no usar weekly como línea de cierre
+  const _useWeeklyFallback = !(candlesD?.dates?.length > 0) && candles?.dates?.length > 0;
+  const _src     = _useWeeklyFallback ? candles : candlesD;
+  const datesD   = _src?.dates  || [];
+  const closesD  = _src?.closes || [];
+  const opensD   = _src?.opens  || closesD;
+  const highsD   = _src?.highs  || closesD;
+  const lowsD    = _src?.lows   || closesD;
+  const hasOHLC  = datesD.length > 0 && (_src?.opens?.length ?? 0) > 0;
 
   _ch('af-c-px', ch => {
     const ma20 = _movAvg(closesD, 20);
