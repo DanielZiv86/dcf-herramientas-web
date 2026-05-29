@@ -159,6 +159,31 @@ python backend/build_fci_data.py             # regenera fci_data.json (44 fondos
 
 ---
 
+## Reglas de desarrollo — lecciones aprendidas
+
+### Filtrado de datos financieros
+- Siempre tratar `0.0` y `null` como "sin dato", no como valor válido. Los fondos discontinuados o inactivos en CAFCI reportan exactamente `0.0` en meses sin actividad — filtrarlos igual que `None`.
+- Antes de incluir un fondo/instrumento en la tabla, validar que tenga al menos un dato útil (rendimiento puntual o mínimo 2 meses de histórico no nulos).
+
+### APIs externas en Render/datacenters
+- CAFCI (y posiblemente otras APIs financieras argentinas) bloquean IPs de datacenter con 403. Siempre implementar un path de caché/fallback estático.
+- Si un script de actualización obtiene 0 resultados de una API externa, hacer `sys.exit(1)` — nunca sobreescribir datos buenos con un resultado vacío.
+- Verificar el comportamiento de la API desde datacenter antes de asumir que funciona en GitHub Actions o Render.
+
+### Verificación post-rediseño de UI
+- Después de cualquier cambio de CSS global o rediseño, verificar explícitamente: (1) que no queden áreas blancas en topbar o fondos de charts, (2) que los labels de ejes no estén cortados, (3) que las fórmulas de calculadoras sean correctas (divisiones vs multiplicaciones).
+- Los tests de código verifican correctitud lógica, no visual — los problemas de UI solo aparecen mirando el browser.
+
+### Seguridad — pendiente para migración a producción
+- `DEV_BYPASS_AUTH=true` en `render.yaml` debe cambiarse a `false` antes del go-live
+- `/api/cache-info` necesita auth guard igual que el resto de endpoints
+- CORS regex debe pinarse al dominio exacto: `r"https://danielziv86\.github\.io"`
+- `whitelist.py` debe fallar cerrado (deny) si las credenciales de Google Sheet fallan, no abierto
+- `bonds.py:477` tiene `_fetch_prices` no definida — reemplazar por `_prices_from_data(await _fetch_all_bond_data(...))`
+- `yahoo.py:169` usa `isinstance(results, Exception)` en vez de `isinstance(r, Exception)` — datos corruptos silenciosos
+
+---
+
 ## Para producción (pendiente)
 
 - Google OAuth (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, redirect URI)
