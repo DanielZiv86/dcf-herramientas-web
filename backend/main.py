@@ -125,7 +125,7 @@ _cors_exact, _cors_patterns = _build_cors_origins(settings.origins_list)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_exact,
-    allow_origin_regex=r"https://.*\.github\.io",
+    allow_origin_regex=r"https://danielziv86\.github\.io",
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
@@ -224,7 +224,17 @@ async def market_status_endpoint(
 # ── Cache status (admin) ──────────────────────────────────────────────────────
 
 @app.get("/api/cache-info", include_in_schema=False)
-async def cache_info_endpoint(request: Request):
+async def cache_info_endpoint(request: Request, dcf_session: _Optional[str] = _Cookie(default=None)):
+    if not settings.dev_bypass_auth:
+        if not dcf_session:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=401)
+        try:
+            from auth import decode_token
+            decode_token(dcf_session)
+        except Exception:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=401)
     from cache import cache_info
     return cache_info()
 

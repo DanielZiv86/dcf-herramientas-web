@@ -474,7 +474,7 @@ async def get_sensibilidad(bond_type: str = "GLOBALES") -> list[dict]:
     try:
         cf = load_cashflows(BD_BONOS_HD)
         base_tickers = sorted(cf["Ticker"].unique())
-        prices = await _fetch_prices([f"{b}D" for b in base_tickers])
+        prices = _prices_from_data(await _fetch_all_bond_data([f"{b}D" for b in base_tickers]))
 
         from services.market_utils import is_global, is_bonar
         if bond_type.upper() == "GLOBALES":

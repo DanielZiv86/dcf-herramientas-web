@@ -11,12 +11,18 @@ from cache import cached
 logger = logging.getLogger(__name__)
 
 
-def _load_whitelist_sync() -> set[str]:
-    """Load whitelisted emails from Google Sheet."""
+def _load_whitelist_sync() -> Optional[set[str]]:
+    """Load whitelisted emails from Google Sheet.
+
+    Returns:
+      None      — whitelist not configured at all → caller should allow everyone.
+      set()     — configured but failed to load → caller should DENY (fail closed).
+      {emails}  — loaded successfully.
+    """
     sa_json = settings.google_service_account_json
     if not sa_json or not settings.google_sheet_id:
         logger.warning("Google Sheet whitelist not configured — allowing all users")
-        return set()
+        return None  # Not configured: intentionally open
 
     try:
         import gspread
@@ -57,17 +63,20 @@ def _load_whitelist_sync() -> set[str]:
         return emails
 
     except Exception as e:
-        logger.error("Failed to load whitelist: %s", e)
+        # Configured but unreachable → fail closed: deny everyone until it recovers.
+        logger.error("Failed to load whitelist — denying all access: %s", e)
         return set()
 
 
 @cached("whitelist", ttl=300)
-def _get_whitelist() -> set[str]:
+def _get_whitelist() -> Optional[set[str]]:
     return _load_whitelist_sync()
 
 
 async def is_whitelisted(email: str) -> bool:
     whitelist = _get_whitelist()
+    if whitelist is None:
+        return True   # Not configured → allow everyone
     if not whitelist:
-        return True  # No whitelist configured → allow everyone
+        return False  # Configured but failed to load → deny (fail closed)
     return email.lower().strip() in whitelist

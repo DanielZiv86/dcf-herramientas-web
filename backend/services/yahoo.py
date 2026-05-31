@@ -166,7 +166,7 @@ async def _fetch_finnhub_batch(tickers: list[str]) -> dict[str, dict]:
 
     tasks = [_safe(tk) for tk in tickers]
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    return {tk: r for tk, r in results if not isinstance(results, Exception) and r}
+    return {tk: r for tk, r in results if not isinstance(r, Exception) and r}
 
 
 # ── Individual chart fallback (always works, no volume) ───────────────────

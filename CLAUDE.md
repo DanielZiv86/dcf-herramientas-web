@@ -96,7 +96,7 @@ dcf-herramientas-web/
 | Bonos Soberanos | ✅ Completo | Snapshot, curva, heatmap, sensibilidad, calculadora |
 | Letras y Boncaps | ✅ Completo | Tabla + chart + calculadora con precio al vencimiento |
 | Bonos CER | 🔧 En corrección | Duplicados y TIR Real pendientes — leer memory/project_cer_tab_debug.md |
-| ONs | ⏳ Pendiente | Leer `ons_ytm_data.py` + `views/ons_ytm.py` antes de empezar |
+| ONs | ✅ Completo | Tabla + 3 charts (Duration/Venc./Ranking) + modal detalle con cashflows |
 | FCI | ✅ Completo | Tabla + gráfico comparativo. Ver sección FCI más abajo. |
 | Análisis Fundamental | ✅ Completo | 5 subtabs benchmark-match. Ver memory/project_fundamental_rentabilidad.md |
 
