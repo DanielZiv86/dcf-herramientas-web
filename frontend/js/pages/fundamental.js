@@ -1513,14 +1513,6 @@ function _tabValuacion(container, tk, data, metrics, profile, candles, candlesD)
     <div style="display:grid;grid-template-columns:repeat(${kpiAll.length},minmax(0,1fr));gap:8px;margin-bottom:1rem">
       ${kpiAll.map(k=>_kpiN(k.l,k.v,k.s,null,k.c)).join('')}
     </div>
-    ${multCards.length ? `
-    <div style="display:flex;align-items:center;gap:6px;margin:4px 0 10px">
-      <span style="width:6px;height:6px;border-radius:50%;background:#22D3EE;display:inline-block;flex-shrink:0"></span>
-      <span style="font-size:9px;font-weight:700;letter-spacing:.10em;text-transform:uppercase;color:#94A3B8;font-family:${_MONO}">MULTIPLES VS HISTORICO</span>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:14px">
-      ${multCards.join('')}
-    </div>` : ''}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       ${chartHTML}
     </div>
