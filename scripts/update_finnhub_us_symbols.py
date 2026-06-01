@@ -62,13 +62,26 @@ def load_token() -> str:
 def fetch_symbols(token: str) -> list[dict]:
     """Llama a Finnhub /stock/symbol?exchange=US y retorna la lista cruda."""
     print("Descargando símbolos desde Finnhub (exchange=US)...")
-    with httpx.Client(timeout=60) as client:
-        r = client.get(
-            f"{FINNHUB_URL}/stock/symbol",
-            params={"exchange": "US", "token": token},
-        )
-        r.raise_for_status()
-        data = r.json()
+    try:
+        with httpx.Client(timeout=60) as client:
+            r = client.get(
+                f"{FINNHUB_URL}/stock/symbol",
+                params={"exchange": "US", "token": token},
+            )
+            if r.status_code == 401:
+                print("⚠️  Finnhub: token inválido (401). Verificar FINNHUB_TOKEN.")
+                sys.exit(0)
+            if r.status_code == 429:
+                print("⚠️  Finnhub: rate limit alcanzado (429). Reintentar más tarde.")
+                sys.exit(0)
+            r.raise_for_status()
+            data = r.json()
+    except httpx.HTTPError as e:
+        print(f"⚠️  Finnhub API error: {e}. Saltando actualización.")
+        sys.exit(0)
+    if not data:
+        print("⚠️  Finnhub devolvió lista vacía. Saltando para no sobreescribir datos existentes.")
+        sys.exit(0)
     print(f"  Recibidos: {len(data):,} símbolos en total")
     return data
 
