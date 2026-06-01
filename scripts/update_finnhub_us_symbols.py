@@ -53,8 +53,9 @@ def load_token() -> str:
 
     token = os.getenv("FINNHUB_TOKEN", "")
     if not token:
-        print("ERROR: FINNHUB_TOKEN no encontrado en .env ni en variables de entorno.")
-        sys.exit(1)
+        print("⚠️  FINNHUB_TOKEN no encontrado — saltando actualización de símbolos.")
+        print("   Configurar como GitHub Secret 'FINNHUB_TOKEN' para activar este workflow.")
+        sys.exit(0)  # exit 0 = skip graceful, no falla el workflow ni manda email
     return token
 
 

@@ -41,10 +41,10 @@ jobs:
           python backend/build_fci_data_ci.py
         env:
           PYTHONPATH: backend
-        # Si CAFCI bloquea el datacenter IP el script hace exit(1) y
-        # este step falla — los steps siguientes no corren, preservando
-        # el fci_data.json existente (que fue generado localmente).
-        continue-on-error: false
+        # Si CAFCI bloquea el datacenter IP el script hace exit(1).
+        # continue-on-error: true evita que el job quede en rojo y mande
+        # email de fallo — los steps siguientes verifican steps.build.outcome.
+        continue-on-error: true
 
       - name: Verificar si cambió
         id: check
